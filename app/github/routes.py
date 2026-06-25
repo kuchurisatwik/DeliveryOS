@@ -13,6 +13,7 @@ from app.workflows.intelligence_stages import (
     ContextBuilderStage, RepositoryUnderstandingAgentStage
 )
 from app.workflows.planning_stages import TestPlanningAgentStage
+from app.workflows.generation_stages import TestGenerationAgentStage
 from app.services.git_service import GitService
 from app.services.github_service import GitHubService
 from app.services.llm_service import LLMService
@@ -56,6 +57,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         RepositoryUnderstandingAgentStage(),
         TestPlanningAgentStage(),
         CreateBranchStage(),
+        TestGenerationAgentStage(),
         GenerateDummyReportStage(),
         CommitStage(),
         PushBranchStage(),

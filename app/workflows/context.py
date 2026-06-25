@@ -44,8 +44,15 @@ class WorkflowContext(BaseModel):
     planning_warnings: List[str] = Field(default_factory=list, description="Warnings from test planning")
     recommended_test_levels: Optional[Any] = Field(None, description="Recommended test levels")
     
+    # Phase 5: Test Generation Data
+    generated_tests: Optional[Any] = Field(None, description="The full GeneratedTestArtifact")
+    generated_files_count: int = Field(0, description="Number of files generated")
+    generated_test_framework: Optional[str] = Field(None, description="Testing framework used for generation")
+    generation_confidence: float = Field(0.0, description="Confidence of the generation")
+    generation_warnings: List[str] = Field(default_factory=list, description="Warnings from generation")
+    workspace_changes: List[str] = Field(default_factory=list, description="List of paths written to the workspace")
+    
     # Placeholders for future phases
-    generated_tests: Optional[Dict[str, Any]] = Field(None, description="Generated tests from test agent")
     coverage: Optional[Dict[str, Any]] = Field(None, description="Coverage report from coverage agent")
     review: Optional[Dict[str, Any]] = Field(None, description="Review feedback from review agent")
     

@@ -56,8 +56,14 @@ class LLMService:
                 
             except Exception as e:
                 error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "503" in error_str or "UNAVAILABLE" in error_str or "404" in error_str or "NOT_FOUND" in error_str:
-                    logger.warning(f"Model {model} hit rate limit, unavailable, or not found. Falling back... Error: {e}")
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "503" in error_str or "UNAVAILABLE" in error_str:
+                    logger.warning(f"Model {model} hit rate limit or 503. Sleeping for 5 seconds before fallback... Error: {e}")
+                    import time
+                    time.sleep(5)
+                    last_exception = e
+                    continue
+                elif "404" in error_str or "NOT_FOUND" in error_str:
+                    logger.warning(f"Model {model} not found (404). Falling back... Error: {e}")
                     last_exception = e
                     continue
                 else:

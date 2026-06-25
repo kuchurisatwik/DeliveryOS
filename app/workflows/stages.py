@@ -103,6 +103,30 @@ class GenerateDummyReportStage(Stage):
                 f.write("\n### ⚠️ Planning Warnings\n")
                 for w in context.planning_warnings:
                     f.write(f"- {w}\n")
+                    
+            if getattr(context, 'generated_tests', None):
+                f.write(f"\n---\n\n## 🛠️ Generated Test Code ({context.generated_files_count} files)\n\n")
+                f.write(f"**Framework:** {context.generated_test_framework}\n")
+                f.write(f"**Confidence:** {context.generation_confidence}\n\n")
+                
+                f.write("### New Files Written to Workspace:\n")
+                for gen_file in context.generated_tests.generated_files:
+                    f.write(f"- `{gen_file.path}`\n")
+                    
+                if context.generated_tests.new_fixtures:
+                    f.write("\n### New Fixtures:\n")
+                    for fix in context.generated_tests.new_fixtures:
+                        f.write(f"- {fix}\n")
+                        
+                if context.generated_tests.mock_objects:
+                    f.write("\n### Mock Objects Used:\n")
+                    for mock in context.generated_tests.mock_objects:
+                        f.write(f"- {mock}\n")
+                        
+                if context.generation_warnings:
+                    f.write("\n### ⚠️ Generation Warnings\n")
+                    for w in context.generation_warnings:
+                        f.write(f"- {w}\n")
 
 class CommitStage(Stage):
     def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
