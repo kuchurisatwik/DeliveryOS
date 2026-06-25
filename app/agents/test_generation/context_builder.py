@@ -39,4 +39,23 @@ class ContextBuilder:
         for s in all_scenarios:
             lines.append(f"[{s.category}] {s.scenario_name}: {s.expected_behaviour}")
             
+        if getattr(context, 'generation_feedback', None):
+            lines.append("\n=== AI QUALITY LOOP FEEDBACK (PREVIOUS ITERATION FAILED) ===")
+            lines.append(f"Priority: {context.generation_feedback.priority}")
+            if context.generation_feedback.failed_tests:
+                lines.append(f"Failed Tests to Fix: {', '.join(context.generation_feedback.failed_tests)}")
+            if context.generation_feedback.weak_assertions:
+                lines.append("Weak Assertions to Improve:")
+                for wa in context.generation_feedback.weak_assertions:
+                    lines.append(f"- {wa}")
+            if context.generation_feedback.missing_scenarios:
+                lines.append("Missing Scenarios to Add (Based on Coverage):")
+                for ms in context.generation_feedback.missing_scenarios:
+                    lines.append(f"- {ms}")
+            if context.generation_feedback.coverage_gaps:
+                lines.append("Lines Missing Coverage:")
+                for cg in context.generation_feedback.coverage_gaps:
+                    lines.append(f"- {cg}")
+            lines.append("\nREGENERATE TESTS INCORPORATING THIS FEEDBACK TO FIX THE ISSUES.")
+            
         return "\n".join(lines)

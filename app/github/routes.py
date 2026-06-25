@@ -35,6 +35,12 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     expected_signature = "sha256=" + mac.hexdigest()
     return hmac.compare_digest(expected_signature, signature)
 
+from app.workflows.quality_stages import (
+    TestExecutionStage, CoverageAnalysisStage, ReviewAgentStage,
+    CoverageAgentStage, FeedbackBuilderStage
+)
+from app.workflows.iteration import IterationController
+
 def run_ai_sde_workflow(push_event: PushEventSchema):
     """Background task function to execute the AI-SDE workflow using the orchestrator."""
     ref = push_event.ref
@@ -48,7 +54,13 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         commit_sha=push_event.after
     )
     
-    stages = [
+    git_service = GitService()
+    github_service = GitHubService()
+    llm_service = LLMService()
+    orchestrator = WorkflowOrchestrator(git_service, github_service, llm_service)
+    
+    # 1. Pre-Loop Stages (Analysis & Planning)
+    pre_stages = [
         CloneRepositoryStage(),
         GitDiffCollectorStage(),
         FileClassifierStage(),
@@ -57,19 +69,53 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         RepositoryUnderstandingAgentStage(),
         TestPlanningAgentStage(),
         CreateBranchStage(),
-        TestGenerationAgentStage(),
+    ]
+    res = orchestrator.run_pipeline(context, pre_stages)
+    if res.status == "FAILED":
+        logger.error("Pipeline failed during pre-stages. Aborting.")
+        return
+        
+    # 2. AI Quality Loop
+    controller = IterationController()
+    
+    while True:
+        generation_execution_stages = [
+            TestGenerationAgentStage(),
+            TestExecutionStage(),
+            CoverageAnalysisStage(),
+        ]
+        
+        res = orchestrator.run_pipeline(context, generation_execution_stages)
+        if res.status == "FAILED":
+            logger.error("Pipeline failed during generation/execution. Aborting.")
+            break
+            
+        if not controller.should_regenerate(context):
+            logger.info("Quality thresholds met or max iterations reached. Exiting loop.")
+            break
+            
+        logger.info(f"Triggering iteration {context.iteration_count + 1} feedback loop...")
+        
+        feedback_stages = [
+            ReviewAgentStage(),
+            CoverageAgentStage(),
+            FeedbackBuilderStage()
+        ]
+        res = orchestrator.run_pipeline(context, feedback_stages)
+        if res.status == "FAILED":
+            logger.error("Pipeline failed during feedback generation. Aborting.")
+            break
+            
+        context.iteration_count += 1
+        
+    # 3. Post-Loop Stages (Commit & PR)
+    post_stages = [
         GenerateDummyReportStage(),
         CommitStage(),
         PushBranchStage(),
         CreatePullRequestStage()
     ]
-    
-    git_service = GitService()
-    github_service = GitHubService()
-    llm_service = LLMService()
-    
-    orchestrator = WorkflowOrchestrator(git_service, github_service, llm_service)
-    orchestrator.run_pipeline(context, stages)
+    orchestrator.run_pipeline(context, post_stages)
 
 @router.post("/webhook")
 async def github_webhook(

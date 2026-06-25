@@ -52,9 +52,15 @@ class WorkflowContext(BaseModel):
     generation_warnings: List[str] = Field(default_factory=list, description="Warnings from generation")
     workspace_changes: List[str] = Field(default_factory=list, description="List of paths written to the workspace")
     
-    # Placeholders for future phases
-    coverage: Optional[Dict[str, Any]] = Field(None, description="Coverage report from coverage agent")
-    review: Optional[Dict[str, Any]] = Field(None, description="Review feedback from review agent")
+    # Phase 6: AI Quality Loop Data
+    test_execution_report: Optional[Any] = Field(None, description="Test execution report")
+    coverage_report: Optional[Any] = Field(None, description="Coverage report")
+    review_report: Optional[Any] = Field(None, description="Review report")
+    coverage_improvement_plan: Optional[Any] = Field(None, description="Coverage improvement plan")
+    generation_feedback: Optional[Any] = Field(None, description="Merged generation feedback")
+    iteration_count: int = Field(1, description="Current generation iteration loop")
+    quality_score: float = Field(0.0, description="Overall quality score")
+    coverage_percentage: float = Field(0.0, description="Cached coverage percentage")
     
     pr_url: Optional[str] = Field(None, description="URL of the created pull request")
     status: str = Field("INITIALIZED", description="Current status of the workflow")

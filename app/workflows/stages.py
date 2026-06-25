@@ -127,6 +127,21 @@ class GenerateDummyReportStage(Stage):
                     f.write("\n### ⚠️ Generation Warnings\n")
                     for w in context.generation_warnings:
                         f.write(f"- {w}\n")
+                        
+            # Phase 6: AI Quality Loop Report
+            if getattr(context, 'iteration_count', 0) > 1 or getattr(context, 'test_execution_report', None):
+                f.write(f"\n---\n\n## 🔄 AI Quality Loop\n\n")
+                f.write(f"**Iterations Required:** {context.iteration_count}\n")
+                
+                if context.test_execution_report:
+                    f.write(f"**Final Test Pass Rate:** {context.test_execution_report.passed} passed, {context.test_execution_report.failed} failed\n")
+                    f.write(f"**Execution Time:** {context.test_execution_report.duration_seconds:.2f}s\n")
+                    
+                if context.coverage_report:
+                    f.write(f"**Final Coverage:** {context.coverage_percentage:.2f}%\n")
+                    
+                if context.review_report:
+                    f.write(f"**AI Code Review Approved:** {'Yes' if context.review_report.approved else 'No'}\n")
 
 class CommitStage(Stage):
     def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
