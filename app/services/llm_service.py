@@ -46,8 +46,14 @@ class LLMService:
             "X-Title": "AI Software Delivery Engineer"
         }
         
-        # OpenRouter fallback sequence
-        models_to_try = [primary_model, "google/gemini-1.5-flash", "google/gemini-1.5-pro"]
+        # OpenRouter fallback sequence across multiple providers
+        models_to_try = [
+            primary_model, 
+            "openai/gpt-4o-mini",
+            "anthropic/claude-3-haiku",
+            "meta-llama/llama-3.1-8b-instruct",
+            "google/gemini-2.0-flash-lite-preview-02-05:free"
+        ]
         
         last_exception = None
         
@@ -59,9 +65,12 @@ class LLMService:
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
-                ],
-                "response_format": {"type": "json_object"}
+                ]
             }
+            
+            # Only add response_format if it's an OpenAI model, as many OpenRouter models reject it with 400
+            if "openai/" in model or "gpt" in model:
+                payload["response_format"] = {"type": "json_object"}
             
             try:
                 with httpx.Client(timeout=120.0) as client:
