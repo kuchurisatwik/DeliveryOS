@@ -3,7 +3,7 @@ from github import Github
 from app.config.settings import settings
 
 g = Github(settings.GITHUB_TOKEN)
-repo = g.get_repo("kuchurisatwik/aws-web-hosting-infrastructure")
+repo = g.get_repo("kuchurisatwik/DeliveryOS")
 commit = repo.get_branch("main").commit.sha
 
 payload = {
@@ -11,9 +11,9 @@ payload = {
     "before": "0000000000000000000000000000000000000000",
     "after": commit,
     "repository": {
-        "name": "aws-web-hosting-infrastructure",
-        "full_name": "kuchurisatwik/aws-web-hosting-infrastructure",
-        "clone_url": "https://github.com/kuchurisatwik/aws-web-hosting-infrastructure.git"
+        "name": "DeliveryOS",
+        "full_name": "kuchurisatwik/DeliveryOS",
+        "clone_url": "https://github.com/kuchurisatwik/DeliveryOS.git"
     },
     "pusher": {"name": "kuchurisatwik"},
     "sender": {"login": "kuchurisatwik"}

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     
     # AI settings
     GEMINI_API_KEY: Optional[str] = Field(None, description="Google Gemini API Key")
+    OPENROUTER_API_KEY: Optional[str] = Field(None, description="OpenRouter API Key")
     
     # Workspace settings
     WORKSPACE_DIR: str = Field(

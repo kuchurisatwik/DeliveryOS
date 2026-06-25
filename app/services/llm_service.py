@@ -1,6 +1,6 @@
 import json
+import httpx
 from typing import Type, TypeVar, Any
-from google import genai
 from pydantic import BaseModel
 from app.config.settings import settings
 from app.utils.logger import logger
@@ -8,40 +8,100 @@ from app.utils.logger import logger
 T = TypeVar('T', bound=BaseModel)
 
 class LLMService:
-    """Centralized service for interacting with LLM providers (Google Gemini)."""
+    """Centralized service for interacting with LLM providers (OpenRouter or Google Gemini)."""
     
     def __init__(self):
-        self.api_key = settings.GEMINI_API_KEY
-        if not self.api_key:
-            logger.warning("GEMINI_API_KEY is not set. LLM features will fail.")
-            self.client = None
-        else:
-            self.client = genai.Client(api_key=self.api_key)
+        self.openrouter_key = settings.OPENROUTER_API_KEY
+        self.gemini_key = settings.GEMINI_API_KEY
+        
+        if not self.openrouter_key and not self.gemini_key:
+            logger.warning("No LLM API keys are set. LLM features will fail.")
             
-    def generate_structured_json(self, prompt: str, schema: Type[T], primary_model: str = "gemini-2.5-flash") -> T:
+    def generate_structured_json(self, prompt: str, schema: Type[T], primary_model: str = "google/gemini-2.5-flash") -> T:
         """
         Generates a structured JSON response matching the provided Pydantic schema.
-        Falls back to other models if rate limits (429) or availability issues (503) occur.
-        
-        Args:
-            prompt: The instruction and context for the LLM.
-            schema: A Pydantic BaseModel class representing the desired output structure.
-            primary_model: The preferred Gemini model to use.
-            
-        Returns:
-            An instance of the provided schema class.
+        Falls back to other models if rate limits or availability issues occur.
         """
-        if not self.client:
-            raise ValueError("GEMINI_API_KEY is not configured.")
+        if self.openrouter_key:
+            # If the caller passed a raw gemini model name, map it to openrouter syntax
+            if not primary_model.startswith("google/"):
+                primary_model = f"google/{primary_model}"
+            return self._call_openrouter(prompt, schema, primary_model)
+        elif self.gemini_key:
+            # If the caller passed an openrouter model name, strip the prefix
+            if primary_model.startswith("google/"):
+                primary_model = primary_model.split("/")[-1]
+            return self._call_gemini(prompt, schema, primary_model)
+        else:
+            raise ValueError("No LLM API keys are configured.")
             
+    def _call_openrouter(self, prompt: str, schema: Type[T], primary_model: str) -> T:
+        # Enforce structured output via system prompt and json schema mapping
+        system_prompt = f"You are a strict JSON generator. You must respond ONLY with raw JSON matching this exact schema:\n{json.dumps(schema.model_json_schema())}\nDo not include any markdown formatting (like ```json), commentary, or extra text."
+        
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:8000",
+            "X-Title": "AI Software Delivery Engineer"
+        }
+        
+        # OpenRouter fallback sequence
+        models_to_try = [primary_model, "google/gemini-1.5-flash", "google/gemini-1.5-pro"]
+        
+        last_exception = None
+        
+        for model in models_to_try:
+            logger.info(f"Calling OpenRouter LLM ({model}) with structured output requirement...")
+            
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "response_format": {"type": "json_object"}
+            }
+            
+            try:
+                with httpx.Client(timeout=120.0) as client:
+                    response = client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                    response.raise_for_status()
+                    
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                
+                # Clean up any potential markdown block wrappers if the model disobeyed
+                content = content.strip()
+                if content.startswith("```json"):
+                    content = content[7:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                    
+                json_data = json.loads(content.strip())
+                return schema(**json_data)
+                
+            except Exception as e:
+                logger.warning(f"Model {model} failed via OpenRouter. Error: {e}")
+                last_exception = e
+                import time
+                time.sleep(2)
+                continue
+                
+        raise ValueError(f"All fallback models failed on OpenRouter. Last error: {last_exception}")
+
+    def _call_gemini(self, prompt: str, schema: Type[T], primary_model: str) -> T:
+        from google import genai
+        client = genai.Client(api_key=self.gemini_key)
+        
         models_to_try = [primary_model, "gemini-1.5-flash", "gemini-1.5-pro"]
         last_exception = None
         
         for model in models_to_try:
-            logger.info(f"Calling LLM ({model}) with structured output requirement...")
+            logger.info(f"Calling Gemini LLM ({model}) with structured output requirement...")
             
             try:
-                response = self.client.models.generate_content(
+                response = client.models.generate_content(
                     model=model,
                     contents=prompt,
                     config={
@@ -50,24 +110,20 @@ class LLMService:
                     },
                 )
                 
-                # The response text should be a valid JSON string matching the schema
                 json_data = json.loads(response.text)
                 return schema(**json_data)
                 
             except Exception as e:
                 error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "503" in error_str or "UNAVAILABLE" in error_str:
-                    logger.warning(f"Model {model} hit rate limit or 503. Sleeping for 5 seconds before fallback... Error: {e}")
+                if "429" in error_str or "503" in error_str:
+                    logger.warning(f"Model {model} hit rate limit or 503. Sleeping... Error: {e}")
                     import time
                     time.sleep(5)
                     last_exception = e
                     continue
-                elif "404" in error_str or "NOT_FOUND" in error_str:
-                    logger.warning(f"Model {model} not found (404). Falling back... Error: {e}")
+                else:
+                    logger.warning(f"Model {model} failed. Falling back... Error: {e}")
                     last_exception = e
                     continue
-                else:
-                    logger.error(f"LLM API call failed with non-rate-limit error: {e}")
-                    raise
                     
         raise ValueError(f"All fallback models failed due to rate limits. Last error: {last_exception}")

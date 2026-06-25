@@ -8,3 +8,4 @@ pygithub
 pytest
 httpx
 google-genai
+pytest-cov
