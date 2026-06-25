@@ -11,6 +11,9 @@ class CoverageService:
         logger.info(f"Running pytest coverage in {workspace_path}")
         
         try:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = workspace_path
+            
             # Run pytest with coverage json report
             # We install pytest-cov in requirements if needed
             subprocess.run(
@@ -18,7 +21,8 @@ class CoverageService:
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
+                env=env
             )
             
             coverage_file = os.path.join(workspace_path, "coverage.json")

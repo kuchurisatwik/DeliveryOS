@@ -1,5 +1,6 @@
 import subprocess
 import time
+import os
 from app.schemas.quality import TestExecutionReport
 from app.utils.logger import logger
 
@@ -11,6 +12,10 @@ class TestExecutionService:
         start_time = time.time()
         
         try:
+            # We must inject the workspace_path into PYTHONPATH so the generated tests can import the app modules
+            env = os.environ.copy()
+            env["PYTHONPATH"] = workspace_path
+            
             # Run pytest in the cloned workspace, capturing output
             # We don't fail immediately on non-zero exit code because test failures are expected
             result = subprocess.run(
@@ -18,7 +23,8 @@ class TestExecutionService:
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
+                env=env
             )
             
             duration = time.time() - start_time
