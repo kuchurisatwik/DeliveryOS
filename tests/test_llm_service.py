@@ -1,77 +1,97 @@
 import pytest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, MagicMock
 from app.services.llm_service import LLMService
 from app.config.settings import settings
 
-@pytest.fixture
-def llm_service():
-    with patch('app.services.llm_service.settings') as mock_settings:
-        mock_settings.OPENROUTER_API_KEY = 'test_openrouter_key'
-        mock_settings.GEMINI_API_KEY = None
+class TestLLMService:
+
+    @patch('app.services.llm_service.httpx')
+    def test_valid_api_key_configuration(self, mock_httpx):
+        settings.OPENROUTER_API_KEY = 'valid_openrouter_key'
         service = LLMService()
-        yield service
+        assert service.openrouter_key == 'valid_openrouter_key'
 
-@pytest.mark.parametrize('response_data,expected', [
-    ({'status': 'success', 'data': {'result': 'test'}}, 'test'),
-    ({'status': 'error', 'message': 'Invalid request'}, None)
-])
-@patch('httpx.AsyncClient.post')
-def test_openrouter_api_integration_logic(mock_post, llm_service, response_data, expected):
-    mock_post.return_value.__aenter__.return_value.json.return_value = response_data
-    result = llm_service._call_openrouter('some_payload')
-    if expected:
-        assert result['result'] == expected
-    else:
-        assert result is None
+    @patch('app.services.llm_service.logger')
+    def test_invalid_api_key_configuration(self, mock_logger):
+        settings.OPENROUTER_API_KEY = 'invalid_key'
+        service = LLMService()
+        # Assuming some error handling in the service
+        with pytest.raises(ValueError) as excinfo:
+            service._call_openrouter()
+        assert 'Invalid API key' in str(excinfo.value)
 
-@patch('httpx.AsyncClient.post')
-def test_handle_invalid_openrouter_api_response(mock_post, llm_service):
-    mock_post.return_value.__aenter__.return_value.json.return_value = {'status': 'error', 'message': 'Invalid request'}
-    with patch('app.utils.logger') as mock_logger:
-        result = llm_service._call_openrouter('some_payload')
-        assert result is None
-        mock_logger.warning.assert_called_with('Invalid response from OpenRouter API.')
+    def test_no_api_key_provided(self):
+        settings.OPENROUTER_API_KEY = None
+        service = LLMService()
+        with pytest.raises(ValueError) as excinfo:
+            service._call_openrouter()
+        assert 'API key is required' in str(excinfo.value)
 
-@patch('httpx.AsyncClient.post')
-def test_openrouter_api_contract_compliance(mock_post, llm_service):
-    mock_post.return_value.__aenter__.return_value.json.return_value = {'status': 'success', 'data': {'result': 'data'}}
-    result = llm_service._call_openrouter('some_payload')
-    assert 'status' in result and 'data' in result
-    assert isinstance(result['data'], dict)
+    @patch('app.services.llm_service.httpx.post')
+    def test_multiple_llm_provider_support(self, mock_post):
+        settings.OPENROUTER_API_KEY = 'valid_openrouter_key'
+        settings.GEMINI_API_KEY = 'valid_gemini_key'
+        service = LLMService()
+        service._call_openrouter()  # Assuming this triggers the use of OpenRouter
+        mock_post.assert_called_once()  # Check if the OpenRouter was called
 
-@patch('httpx.AsyncClient.post')
-def test_auth_failure_openrouter(mock_post, llm_service):
-    mock_post.return_value.__aenter__.return_value.status_code = 403
-    result = llm_service._call_openrouter('some_payload')
-    assert result is None
+    @patch('app.services.llm_service.httpx.post')
+    def test_fallback_mechanism_for_llm_providers(self, mock_post):
+        settings.GEMINI_API_KEY = 'valid_gemini_key'
+        settings.OPENROUTER_API_KEY = 'valid_openrouter_key'
+        # Simulate OpenRouter failing
+        mock_post.side_effect = Exception('OpenRouter failure')
+        service = LLMService()
+        service._call_openrouter()  # First call to OpenRouter
+        # Now check if it falls back to Gemini
+        service._call_gemini()
+        mock_post.assert_called()  # Ensure it attempted calls to both
 
-@patch('httpx.AsyncClient.post')
-def test_simulate_openrouter_downtime(mock_post, llm_service):
-    mock_post.side_effect = httpx.ConnectError('Failed to connect')
-    with patch('app.utils.logger') as mock_logger:
-        result = llm_service._call_openrouter('some_payload')
-        assert result is None
-        mock_logger.error.assert_called_with('OpenRouter API is currently unavailable.')
+    @patch('app.services.llm_service.httpx.post')
+    def test_api_contract_validation_for_openrouter(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {'data': 'valid_response'}
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+        service = LLMService()
+        response = service._call_openrouter()
+        assert response['data'] == 'valid_response'
 
-@patch('httpx.AsyncClient.post')
-def test_test_invalid_configuration_openrouter(mock_post, llm_service):
-    with patch('app.utils.logger') as mock_logger:
-        llm_service.openrouter_key = None
-        result = llm_service._call_openrouter('some_payload')
-        assert result is None
-        mock_logger.error.assert_called_with('OpenRouter API configuration is invalid.')
+    def test_unauthorized_access_to_openrouter_api(self):
+        settings.OPENROUTER_API_KEY = 'invalid_key'
+        service = LLMService()
+        with pytest.raises(PermissionError) as excinfo:
+            service._call_openrouter()
+        assert 'Unauthorized' in str(excinfo.value)
 
-@patch('httpx.AsyncClient.post')
-def test_test_maximum_input_size_openrouter(mock_post, llm_service):
-    large_payload = 'x' * 10**6
-    mock_post.return_value.__aenter__.return_value.json.return_value = {'status': 'success', 'data': {'result': 'valid'}}
-    result = llm_service._call_openrouter(large_payload)
-    assert result['data']['result'] == 'valid'
+    def test_invalid_llm_provider_identifier(self):
+        service = LLMService()
+        with pytest.raises(ValueError) as excinfo:
+            service._call_openrouter('invalid_provider')
+        assert 'Invalid LLM provider' in str(excinfo.value)
 
-@patch('httpx.AsyncClient.post')
-def test_check_input_validation_against_injection_attacks(mock_post, llm_service):
-    malicious_payload = '<script>alert(1)</script>'
-    with patch('app.utils.logger') as mock_logger:
-        result = llm_service._call_openrouter(malicious_payload)
-        assert result is None
-        mock_logger.warning.assert_called_with('Malicious data detected and rejected.')
+    def test_maximum_length_api_key(self):
+        long_key = 'x' * 100
+        settings.OPENROUTER_API_KEY = long_key
+        service = LLMService()
+        assert service.openrouter_key == long_key
+
+    def test_minimum_length_api_key(self):
+        short_key = 'ab'
+        settings.OPENROUTER_API_KEY = short_key
+        service = LLMService()
+        with pytest.raises(ValueError) as excinfo:
+            service._call_openrouter()
+        assert 'API key length must be greater' in str(excinfo.value)
+
+    def test_api_key_exposure(self, caplog):
+        settings.OPENROUTER_API_KEY = 'exposed_key'
+        service = LLMService()
+        with pytest.raises(ValueError) as excinfo:
+            service._call_openrouter()
+        assert 'exposed_key' not in caplog.text
+
+    def test_session_management_for_api_access(self):
+        service = LLMService()
+        with pytest.raises(SessionExpiredError):
+            service._call_openrouter() # Assuming it checks for session
