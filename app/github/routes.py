@@ -41,6 +41,7 @@ from app.workflows.quality_stages import (
 )
 from app.workflows.iteration import IterationController
 
+
 def run_ai_sde_workflow(push_event: PushEventSchema):
     """Background task function to execute the AI-SDE workflow using the orchestrator."""
     ref = push_event.ref
