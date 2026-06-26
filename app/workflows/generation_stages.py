@@ -1,14 +1,15 @@
 from app.workflows.stages import Stage
 from app.workflows.context import WorkflowContext
-from app.services.git_service import GitService
-from app.services.github_service import GitHubService
+
+
 from app.utils.logger import logger
 from app.agents.test_generation.generator import TestGenerationAgent
 from app.services.workspace_writer import WorkspaceWriterService
 
 class TestGenerationAgentStage(Stage):
     """Executes the Test Generation Agent (SDET) and writes the results to the workspace."""
-    def __init__(self, llm_service: 'LLMService'):
+    from app.services.llm_service import LLMService
+    def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
         
     def execute(self, context: WorkflowContext) -> None:

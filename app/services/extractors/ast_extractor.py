@@ -1,6 +1,8 @@
 import os
 import ast
-from typing import List, Optional
+from typing import List
+
+# Unused imports removed as part of linting
 from app.services.extractors.base import IntelligenceExtractor
 from app.schemas.knowledge import (
     RepositoryKnowledge,
@@ -45,11 +47,17 @@ class AstPythonExtractor(IntelligenceExtractor):
                         self._parse_tree(tree, rel_path, knowledge)
                         
                     except SyntaxError:
-                        pass # Ignore files with syntax errors during static extraction
+                        pass
+        pass # Ignore files with syntax errors during static extraction
                     except Exception as e:
+                        pass
+    pass
                         pass
                         
         # Cleanup deleted files
+        for rel_path in deleted_files:
+            self._clear_file_knowledge(rel_path, knowledge)
+        deleted_files = set(knowledge.mtimes.keys()) - current_files
         deleted_files = set(knowledge.mtimes.keys()) - current_files
         for rel_path in deleted_files:
             self._clear_file_knowledge(rel_path, knowledge)
@@ -186,3 +194,7 @@ class AstPythonExtractor(IntelligenceExtractor):
             returns=returns,
             is_async=isinstance(node, ast.AsyncFunctionDef)
         )
+
+
+
+        for rel_path in deleted_files:

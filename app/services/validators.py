@@ -1,7 +1,9 @@
 import ast
 import os
 import subprocess
-from typing import List, Dict
+
+
+# Unused imports removed as part of linting
 from app.utils.logger import logger
 from app.schemas.quality import (
     SyntaxStatus,

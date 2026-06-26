@@ -38,12 +38,13 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     mac = hmac.new(settings.WEBHOOK_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
     expected_signature = "sha256=" + mac.hexdigest()
     return hmac.compare_digest(expected_signature, signature)
+from app.workflows.quality_stages import ValidationEngineStage, WorkspacePatchStage
 
 from app.workflows.quality_stages import (
     ValidationEngineStage, WorkspacePatchStage
 )
-from app.workflows.repair_stage import RepairAgentStage
-from app.workflows.iteration import IterationController
+
+
 
 def run_ai_sde_workflow(push_event: PushEventSchema):
     """Background task function to execute the AI-SDE workflow using the orchestrator."""
@@ -86,6 +87,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         return
         
     # 3. Validation & Improvement Engine Loop
+    from app.workflows.iteration import IterationController
     controller = IterationController(max_iterations=5)
     
     while True:
@@ -103,11 +105,12 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         logger.info(f"Triggering improvement iteration {context.iteration_count}...")
         
         # Step 3b: Unified Repair Session
-        improvement_stages = [
+        from app.workflows.stages import RepairAgentStage
+    improvement_stages = [
             RepairAgentStage(repair_agent),
             WorkspacePatchStage(patch_service)
         ]
-        res = orchestrator.run_pipeline(context, improvement_stages)
+    res = orchestrator.run_pipeline(context, improvement_stages)
         if res.status == "FAILED":
             logger.error("Pipeline failed during improvement stages. Aborting.")
             break
@@ -160,3 +163,7 @@ async def github_webhook(
         return {"status": "accepted", "message": "Push event queued for processing"}
         
     return {"status": "ignored", "message": f"Event {x_github_event} not handled"}
+
+
+
+@router.post("/webhook")
