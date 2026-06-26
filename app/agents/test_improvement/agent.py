@@ -62,11 +62,11 @@ class TestImprovementAgent:
             logs = []
             if vr.execution_report:
                 logs.append(f"Pytest stdout:\n{vr.execution_report.stdout}")
-                logs.append(f"Pytest stderr:\n{vr.execution_report.stderr}")
+                logs.append("Pytest stderr:\n" + vr.execution_report.stderr)
             if not vr.type_status.passed:
-                logs.append(f"Mypy Errors:\n" + "\n".join(vr.type_status.errors))
+                logs.append("Mypy Errors:\n" + "\n".join(vr.type_status.errors))
             if not vr.lint_status.passed:
-                logs.append(f"Ruff Warnings:\n" + "\n".join(vr.lint_status.warnings))
+                logs.append("Ruff Warnings:\n" + "\n".join(vr.lint_status.warnings))
             execution_logs = "\n\n".join(logs)
             
         repo_knowledge = "{}"

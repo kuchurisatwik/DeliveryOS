@@ -152,14 +152,14 @@ class GenerateDummyReportStage(Stage):
                     f.write(f"- **Types (Mypy):** {'✅ Passed' if val.type_status.passed else '❌ Failed'}\n")
                     
                     if val.execution_report:
-                        f.write(f"\n### Test Execution\n")
+                        f.write("\n### Test Execution\n")
                         f.write(f"**Pass Rate:** {val.execution_report.passed} passed, {val.execution_report.failed} failed\n")
                         
                     if val.coverage_report:
                         f.write(f"**Coverage:** {val.coverage_report.coverage_percentage:.2f}%\n")
                         
                 if getattr(context, 'review_report', None):
-                    f.write(f"\n### AI Review\n")
+                    f.write("\n### AI Review\n")
                     f.write(f"**AI Code Review Approved:** {'Yes' if context.review_report.approved else 'No'}\n")
 
 class CommitStage(Stage):

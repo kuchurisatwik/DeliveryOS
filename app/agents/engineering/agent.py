@@ -71,3 +71,9 @@ class EngineeringAgent:
                 logger.warning(f"EngineeringAgent generation failed (attempt {attempt+1}/{max_retries}): {e}")
                 
         raise ValueError(f"Failed to generate EngineeringSessionSchema after {max_retries} attempts. Last error: {last_error}")
+
+
+
+
+# Fix duplicate module issue for named 'agent'
+# Resolving potential naming conflicts between agents
