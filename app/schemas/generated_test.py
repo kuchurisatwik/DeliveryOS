@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List
+
 
 class GeneratedFile(BaseModel):
     path: str = Field(description="Relative path within the workspace where the file should be written")
