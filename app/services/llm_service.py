@@ -1,6 +1,7 @@
 import json
 import httpx
-from typing import Type, TypeVar, Any
+from typing import Type, TypeVar
+
 from pydantic import BaseModel
 from app.config.settings import settings
 from app.utils.logger import logger

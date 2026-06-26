@@ -25,7 +25,8 @@ class TestImprovementAgent:
             # Assuming generated_tests is an object with a 'files' array
             try:
                 current_tests = json.dumps(context.generated_tests.model_dump(), indent=2)
-            except:
+            except Exception as e:
+                logger.error(f'An error occurred: {e}')
                 current_tests = str(context.generated_tests)
         
         user_prompt = TEST_IMPROVEMENT_USER_PROMPT.format(
