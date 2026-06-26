@@ -83,7 +83,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         return
         
     # 3. Validation & Improvement Engine Loop
-    controller = IterationController(max_iterations=3)
+    controller = IterationController(max_iterations=5)
     
     while True:
         # Step 3a: Deterministic Validation

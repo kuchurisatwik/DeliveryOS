@@ -3,7 +3,7 @@ from app.workflows.context import WorkflowContext
 class IterationController:
     """Decides whether to trigger an improvement cycle based on validation metrics."""
     
-    def __init__(self, max_iterations: int = 3, target_coverage: float = 90.0):
+    def __init__(self, max_iterations: int = 5, target_coverage: float = 90.0):
         self.max_iterations = max_iterations
         self.target_coverage = target_coverage
         
