@@ -37,7 +37,8 @@ class ReviewAgent:
                 for gen_file in context.generated_tests.generated_files:
                     lines.append(f"File: {gen_file.path}")
                     lines.append(f"```python\n{gen_file.content}\n```")
-            except:
+            except Exception as e:
+                logger.error(f'An error occurred: {e}')
                 lines.append(str(context.generated_tests))
         else:
             lines.append("No generated tests in context.")
