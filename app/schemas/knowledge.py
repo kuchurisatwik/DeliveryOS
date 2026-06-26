@@ -1,9 +1,10 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict
 
 class MethodSignature(BaseModel):
     name: str
     args: List[str]
+    from typing import Optional
     returns: Optional[str] = None
     is_async: bool = False
 
@@ -11,7 +12,8 @@ class ClassSignature(BaseModel):
     name: str
     methods: List[MethodSignature]
     bases: List[str]
-    docstring: Optional[str] = None
+    docstring: str = None  # Optional is not defined
+    from typing import Optional
 
 class RouteSignature(BaseModel):
     method: str
@@ -24,7 +26,8 @@ class FixtureSignature(BaseModel):
 
 class RepositoryKnowledge(BaseModel):
     language: str = Field(default="python")
-    framework: Optional[str] = None
+    framework: str = None  # Optional is not defined
+    from typing import Optional
     testing_framework: str = Field(default="pytest")
     
     # Indexes mapping file paths (or module paths) to lists of objects

@@ -1,5 +1,4 @@
 from app.workflows.context import WorkflowContext
-from app.workflows.results import WorkflowResult
 from app.workflows.stages import Stage
 from app.workflows.orchestrator import WorkflowOrchestrator
 
