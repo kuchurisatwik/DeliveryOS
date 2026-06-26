@@ -18,11 +18,11 @@ class ReviewAgent:
             
         system_prompt = "You are an AI Code Reviewer specializing in Test Quality.\nAnalyze the Validation Report and Generated Tests. Identify weak assertions, missing mocks, readability issues, and poor naming. Return structural reasoning ONLY."
         user_prompt = self._build_prompt(context)
+        full_prompt = system_prompt + "\n\n" + user_prompt
         
-        return self.llm_service.call_llm(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_schema=ReviewReport
+        return self.llm_service.generate_structured_json(
+            prompt=full_prompt,
+            schema=ReviewReport
         )
         
     def _build_prompt(self, context: WorkflowContext) -> str:

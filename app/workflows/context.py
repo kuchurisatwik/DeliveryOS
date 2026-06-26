@@ -31,6 +31,7 @@ class WorkflowContext(BaseModel):
     structured_diff: Dict[str, Any] = Field(default_factory=lambda: {"added": [], "modified": [], "deleted": [], "renamed": []}, description="Structured git diff")
     file_categories: Dict[str, List[str]] = Field(default_factory=dict, description="Categorized changed files")
     extracted_metadata: Dict[str, Any] = Field(default_factory=dict, description="Extracted code metadata")
+    repository_knowledge: Optional[Any] = Field(None, description="Structured Repository Knowledge object")
     llm_context: str = Field("", description="Compact context string for the LLM")
     change_summary: Optional[ChangeSummarySchema] = Field(None, description="LLM generated summary of changes")
     

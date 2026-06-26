@@ -27,17 +27,37 @@ class TestImprovementAgent:
                 current_tests = json.dumps(context.generated_tests.model_dump(), indent=2)
             except:
                 current_tests = str(context.generated_tests)
+                
+        execution_logs = ""
+        if context.validation_report:
+            vr = context.validation_report
+            logs = []
+            if vr.execution_report:
+                logs.append(f"Pytest stdout:\n{vr.execution_report.stdout}")
+                logs.append(f"Pytest stderr:\n{vr.execution_report.stderr}")
+            if not vr.type_status.passed:
+                logs.append(f"Mypy Errors:\n" + "\n".join(vr.type_status.errors))
+            if not vr.lint_status.passed:
+                logs.append(f"Ruff Warnings:\n" + "\n".join(vr.lint_status.warnings))
+            execution_logs = "\n\n".join(logs)
+            
+        repo_knowledge = "{}"
+        if context.repository_knowledge:
+            repo_knowledge = context.repository_knowledge.model_dump_json(indent=2)
         
         user_prompt = TEST_IMPROVEMENT_USER_PROMPT.format(
             improvement_plan=improvement_plan_text,
             current_tests=current_tests,
-            repo_analysis=repo_analysis_text
+            repo_analysis=repo_analysis_text,
+            execution_logs=execution_logs,
+            repo_knowledge=repo_knowledge
         )
         
-        response = self.llm_service.call_llm(
-            system_prompt=TEST_IMPROVEMENT_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            response_schema=PatchArtifact
+        full_prompt = TEST_IMPROVEMENT_SYSTEM_PROMPT + "\n\n" + user_prompt
+        
+        response = self.llm_service.generate_structured_json(
+            prompt=full_prompt,
+            schema=PatchArtifact
         )
         
         logger.info("Test Improvement Agent successfully generated patches.")

@@ -5,6 +5,7 @@ from app.workflows.context import WorkflowContext, ChangeSummarySchema
 from app.services.git_service import GitService
 from app.services.github_service import GitHubService
 from app.services.llm_service import LLMService
+from app.services.knowledge_aggregator import RepositoryKnowledgeAggregator
 
 class GitDiffCollectorStage(Stage):
     """Step 1: Collects the structured git diff."""
@@ -47,30 +48,25 @@ class FileClassifierStage(Stage):
 class MetadataExtractorStage(Stage):
     """Step 3: Extracts software metadata deterministically."""
     def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None) -> None:
-        metadata = {
+        if not context.workspace:
+            raise ValueError("Workspace is not set for MetadataExtractorStage.")
+            
+        aggregator = RepositoryKnowledgeAggregator()
+        knowledge = aggregator.build_or_load(context.workspace)
+        context.repository_knowledge = knowledge
+        
+        # Keep minimal backward compatibility for extracted_metadata
+        context.extracted_metadata = {
             "functions": [],
             "classes": [],
             "routes": [],
             "decorators": []
         }
-        
-        # Very simple regex parsing for Python (expandable later or replace with AST)
-        func_regex = re.compile(r"^\+?\s*def\s+([a-zA-Z0-9_]+)\s*\(", re.MULTILINE)
-        class_regex = re.compile(r"^\+?\s*class\s+([a-zA-Z0-9_]+)", re.MULTILINE)
-        route_regex = re.compile(r"^\+?\s*@app\.(get|post|put|delete|patch)\(\"([^\"]+)\"", re.MULTILINE)
-        
-        for f in context.structured_diff.get("added", []) + context.structured_diff.get("modified", []):
-            diff_text = f.get("diff", "")
-            
-            for match in func_regex.finditer(diff_text):
-                metadata["functions"].append(match.group(1))
-            for match in class_regex.finditer(diff_text):
-                metadata["classes"].append(match.group(1))
-            for match in route_regex.finditer(diff_text):
-                metadata["routes"].append(f"{match.group(1).upper()} {match.group(2)}")
-                context.framework = "FastAPI" # Auto-detect FastAPI
-                
-        context.extracted_metadata = metadata
+        for file in context.changed_files:
+            if file in knowledge.class_index:
+                context.extracted_metadata["classes"].extend([c.name for c in knowledge.class_index[file]])
+            if file in knowledge.route_index:
+                context.extracted_metadata["routes"].extend([r.path for r in knowledge.route_index[file]])
 
 class ContextBuilderStage(Stage):
     """Step 4: Builds a compact string for the LLM."""
@@ -99,6 +95,28 @@ class ContextBuilderStage(Stage):
         for f in context.structured_diff.get("modified", []):
             lines.append(f"\n[MODIFIED] {f['path']}")
             lines.append(f['diff'][:1000])
+            
+        # Add filtered repository knowledge
+        if context.repository_knowledge:
+            lines.append("\n## Repository Knowledge (Relevant to Changes)")
+            lines.append("### Classes")
+            for f in context.changed_files:
+                if f in context.repository_knowledge.class_index:
+                    for cls in context.repository_knowledge.class_index[f]:
+                        lines.append(f"Class {cls.name}:")
+                        for m in cls.methods:
+                            lines.append(f"  def {m.name}({', '.join(m.args)}) -> {m.returns}")
+            
+            lines.append("### Methods")
+            for f in context.changed_files:
+                if f in context.repository_knowledge.method_index:
+                    for m in context.repository_knowledge.method_index[f]:
+                        lines.append(f"def {m.name}({', '.join(m.args)}) -> {m.returns}")
+                        
+            lines.append("### Fixtures")
+            for f in context.repository_knowledge.fixture_index.values():
+                for fix in f:
+                    lines.append(f"@pytest.fixture(scope={fix.scope}) def {fix.name}()")
             
         context.llm_context = "\n".join(lines)
 

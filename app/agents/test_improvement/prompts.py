@@ -35,4 +35,11 @@ TEST_IMPROVEMENT_USER_PROMPT = """Please generate the Patch Artifact to apply th
 
 # Repository Analysis
 {repo_analysis}
+
+# Execution Logs (stderr / stdout / mypy / ruff)
+{execution_logs}
+
+# Repository Knowledge (Factual API)
+Use these exact methods and fixtures. Do not hallucinate.
+{repo_knowledge}
 """

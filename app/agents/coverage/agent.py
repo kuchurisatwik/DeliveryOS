@@ -22,11 +22,11 @@ class CoverageAgent:
             
         system_prompt = "You are an AI Coverage Analyst. Your goal is to map uncovered code to missing test scenarios based on the TestPlan. Return structural reasoning ONLY."
         user_prompt = self._build_prompt(context, coverage)
+        full_prompt = system_prompt + "\n\n" + user_prompt
         
-        return self.llm_service.call_llm(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_schema=CoverageAnalysis
+        return self.llm_service.generate_structured_json(
+            prompt=full_prompt,
+            schema=CoverageAnalysis
         )
         
     def _build_prompt(self, context: WorkflowContext, coverage) -> str:

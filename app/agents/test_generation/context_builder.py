@@ -26,6 +26,11 @@ class ContextBuilder:
         lines.append(f"Affected Modules: {', '.join(context.change_summary.affected_modules)}")
         lines.append(f"LLM Context (Code Snippets): {context.llm_context}")
         
+        if context.repository_knowledge:
+            lines.append("\n=== REPOSITORY KNOWLEDGE (FACTUAL API) ===")
+            lines.append("Use these exact methods and fixtures. Do not hallucinate.")
+            lines.append(context.repository_knowledge.model_dump_json(indent=2))
+        
         lines.append("\n=== TARGET TEST PLAN SCENARIOS ===")
         all_scenarios = (
             context.test_plan.unit_test_scenarios +
