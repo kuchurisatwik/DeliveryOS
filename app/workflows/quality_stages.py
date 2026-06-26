@@ -13,7 +13,7 @@ from app.services.workspace_patch import WorkspacePatchService
 class ValidationEngineStage(Stage):
     """Deterministically runs all validation services in the workspace."""
     
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: None) -> None:
         if not context.workspace:
             raise ValueError("ValidationEngineStage requires a workspace path.")
             

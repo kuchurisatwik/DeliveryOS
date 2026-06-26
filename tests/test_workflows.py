@@ -1,5 +1,5 @@
 from app.workflows.context import WorkflowContext
-from app.workflows.results import WorkflowResult
+
 from app.workflows.stages import Stage
 from app.workflows.orchestrator import WorkflowOrchestrator
 
@@ -11,7 +11,7 @@ class DummyFailStage(Stage):
     def execute(self, context, git_service, github_service):
         raise ValueError("Simulated failure")
 
-def test_workflow_orchestrator_success():
+def test_workflow_orchestrator_success_with_valid_input():
     context = WorkflowContext(
         repository="test/repo",
         repo_name="repo",
@@ -27,7 +27,7 @@ def test_workflow_orchestrator_success():
     assert "DummySuccessStage" in result.completed_stages
     assert context.status == "COMPLETED"
 
-def test_workflow_orchestrator_failure():
+def test_workflow_orchestrator_failure_with_invalid_input():
     context = WorkflowContext(
         repository="test/repo",
         repo_name="repo",

@@ -8,7 +8,7 @@ from app.agents.test_planning.planner import TestPlannerAgent
 class TestPlanningAgentStage(Stage):
     """Executes the Test Planning Agent to build a test plan from the architectural summary."""
     
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: None) -> None:
         if not llm_service:
             raise ValueError("TestPlanningAgentStage requires an LLMService instance")
             

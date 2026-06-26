@@ -9,7 +9,7 @@ from app.services.workspace_writer import WorkspaceWriterService
 class TestGenerationAgentStage(Stage):
     """Executes the Test Generation Agent (SDET) and writes the results to the workspace."""
     
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: None) -> None:
         if not llm_service:
             raise ValueError("TestGenerationAgentStage requires an LLMService instance")
             

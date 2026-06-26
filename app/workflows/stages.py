@@ -9,7 +9,7 @@ class Stage(abc.ABC):
     """Abstract base class for a workflow stage."""
     
     @abc.abstractmethod
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: None) -> None:
         """Executes the stage logic.
         
         Args:
