@@ -1,6 +1,8 @@
+
 import os
-import ast
-from typing import List, Optional
+# import ast  # Remove redefined ast import
+
+from typing import ast
 from app.services.extractors.base import IntelligenceExtractor
 from app.schemas.knowledge import (
     RepositoryKnowledge,
@@ -33,7 +35,7 @@ class AstPythonExtractor(IntelligenceExtractor):
                         
                     except SyntaxError:
                         pass # Ignore files with syntax errors during static extraction
-                    except Exception as e:
+                    except Exception:
                         pass
 
     def _parse_tree(self, tree: ast.AST, rel_path: str, knowledge: RepositoryKnowledge) -> None:
