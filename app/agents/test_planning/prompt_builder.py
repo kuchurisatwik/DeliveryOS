@@ -28,4 +28,9 @@ class PromptBuilder:
         lines.append(f"Affected Database Tables: {', '.join(context.change_summary.affected_database_tables)}")
         lines.append(f"Architecture Impact: {context.change_summary.architecture_impact}")
         
+        if getattr(context, "repository_knowledge", None):
+            lines.append("\n=== REPOSITORY KNOWLEDGE (FACTUAL API) ===")
+            lines.append("Use ONLY the methods and routes listed below to create your scenarios. Do not invent scenarios for methods that do not exist.")
+            lines.append(context.repository_knowledge.model_dump_json(indent=2))
+        
         return "\n".join(lines)
