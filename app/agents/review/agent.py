@@ -1,38 +1,45 @@
 from app.workflows.context import WorkflowContext
 from app.services.llm_service import LLMService
 from app.schemas.quality import ReviewReport
+from app.utils.logger import logger
+import json
 
 class ReviewAgent:
     """Agent responsible for reviewing generated tests against execution results."""
     
-    def __init__(self, llm_service: LLMService):
-        self.llm_service = llm_service
+    def __init__(self):
+        self.llm_service = LLMService()
         
     def review_tests(self, context: WorkflowContext) -> ReviewReport:
-        if not context.generated_tests or not context.test_execution_report:
-            raise ValueError("ReviewAgent requires both generated tests and an execution report.")
+        logger.info("Calling Review Agent...")
+        if not context.validation_report:
+            logger.warning("No ValidationReport found for ReviewAgent.")
+            return ReviewReport(approved=True)
             
-        prompt = self._build_prompt(context)
+        system_prompt = "You are an AI Code Reviewer specializing in Test Quality.\nAnalyze the Validation Report and Generated Tests. Identify weak assertions, missing mocks, readability issues, and poor naming. Return structural reasoning ONLY."
+        user_prompt = self._build_prompt(context)
         
-        return self.llm_service.generate_structured_json(
-            prompt=prompt,
-            schema=ReviewReport
+        return self.llm_service.call_llm(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_schema=ReviewReport
         )
         
     def _build_prompt(self, context: WorkflowContext) -> str:
         lines = []
-        lines.append("You are an AI Code Reviewer specializing in Test Quality.")
-        lines.append("Analyze the provided Generated Tests and their Execution Report.")
-        lines.append("Identify weak assertions, duplicated tests, poor naming, or missing mocks.")
-        lines.append("\n=== EXECUTION REPORT ===")
-        lines.append(f"Passed: {context.test_execution_report.passed}")
-        lines.append(f"Failed: {context.test_execution_report.failed}")
-        lines.append(f"Errors: {context.test_execution_report.errors}")
-        lines.append(f"Stdout:\n{context.test_execution_report.stdout[:2000]}") # Truncate stdout to fit context
+        lines.append("=== VALIDATION REPORT ===")
+        val_dump = context.validation_report.model_dump()
+        lines.append(json.dumps(val_dump, indent=2, default=str))
         
-        lines.append("\n=== GENERATED TESTS ===")
-        for gen_file in context.generated_tests.generated_files:
-            lines.append(f"File: {gen_file.path}")
-            lines.append(f"```python\n{gen_file.content}\n```")
+        lines.append("\n=== CURRENT TESTS ===")
+        if context.generated_tests:
+            try:
+                for gen_file in context.generated_tests.generated_files:
+                    lines.append(f"File: {gen_file.path}")
+                    lines.append(f"```python\n{gen_file.content}\n```")
+            except:
+                lines.append(str(context.generated_tests))
+        else:
+            lines.append("No generated tests in context.")
             
         return "\n".join(lines)

@@ -36,8 +36,8 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected_signature, signature)
 
 from app.workflows.quality_stages import (
-    TestExecutionStage, CoverageAnalysisStage, ReviewAgentStage,
-    CoverageAgentStage, FeedbackBuilderStage
+    ValidationEngineStage, ReviewAgentStage, CoverageAgentStage,
+    ImprovementPlannerStage, TestImprovementAgentStage, WorkspacePatchStage
 )
 from app.workflows.iteration import IterationController
 
@@ -75,40 +75,49 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         logger.error("Pipeline failed during pre-stages. Aborting.")
         return
         
-    # 2. AI Quality Loop
-    controller = IterationController()
+    # 2. Test Generation (Runs EXACTLY ONCE)
+    gen_stage = [TestGenerationAgentStage()]
+    res = orchestrator.run_pipeline(context, gen_stage)
+    if res.status == "FAILED":
+        logger.error("Pipeline failed during Test Generation. Aborting.")
+        return
+        
+    # 3. Validation & Improvement Engine Loop
+    controller = IterationController(max_iterations=3)
     
     while True:
-        generation_execution_stages = [
-            TestGenerationAgentStage(),
-            TestExecutionStage(),
-            CoverageAnalysisStage(),
-        ]
-        
-        res = orchestrator.run_pipeline(context, generation_execution_stages)
+        # Step 3a: Deterministic Validation
+        val_stage = [ValidationEngineStage()]
+        res = orchestrator.run_pipeline(context, val_stage)
         if res.status == "FAILED":
-            logger.error("Pipeline failed during generation/execution. Aborting.")
+            logger.error("Pipeline failed during Validation. Aborting.")
             break
             
-        if not controller.should_regenerate(context):
-            logger.info("Quality thresholds met or max iterations reached. Exiting loop.")
+        if not controller.should_improve(context):
+            logger.info("Quality thresholds met or max iterations reached. Exiting Improvement loop.")
             break
             
-        logger.info(f"Triggering iteration {context.iteration_count + 1} feedback loop...")
+        logger.info(f"Triggering improvement iteration {context.iteration_count}...")
         
-        feedback_stages = [
+        # Step 3b: Analysis, Planning, and Patching
+        improvement_stages = [
             ReviewAgentStage(),
             CoverageAgentStage(),
-            FeedbackBuilderStage()
+            ImprovementPlannerStage(),
+            TestImprovementAgentStage(),
+            WorkspacePatchStage()
         ]
-        res = orchestrator.run_pipeline(context, feedback_stages)
+        res = orchestrator.run_pipeline(context, improvement_stages)
         if res.status == "FAILED":
-            logger.error("Pipeline failed during feedback generation. Aborting.")
+            logger.error("Pipeline failed during improvement stages. Aborting.")
             break
             
         context.iteration_count += 1
         
-    # 3. Post-Loop Stages (Commit & PR)
+    # 4. Calculate Final Merge Confidence
+    controller.calculate_merge_confidence(context)
+        
+    # 5. Post-Loop Stages (Commit & PR)
     post_stages = [
         GenerateDummyReportStage(),
         CommitStage(),
