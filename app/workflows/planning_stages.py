@@ -7,17 +7,17 @@ from app.agents.test_planning.planner import TestPlannerAgent
 
 class TestPlanningAgentStage(Stage):
     """Executes the Test Planning Agent to build a test plan from the architectural summary."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
-        if not llm_service:
-            raise ValueError("TestPlanningAgentStage requires an LLMService instance")
+    def __init__(self, llm_service: 'LLMService'):
+        self.llm_service = llm_service
+        
+    def execute(self, context: WorkflowContext) -> None:
             
         if not context.change_summary:
             logger.warning("No change_summary found in context. Skipping TestPlanningAgentStage.")
             return
             
         logger.info("Calling Test Planning Agent (Senior QA Architect)...")
-        agent = TestPlannerAgent(llm_service)
+        agent = TestPlannerAgent(self.llm_service)
         test_plan = agent.generate_plan(context)
         
         context.test_plan = test_plan

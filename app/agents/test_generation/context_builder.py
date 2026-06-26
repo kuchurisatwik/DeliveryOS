@@ -26,6 +26,19 @@ class ContextBuilder:
         lines.append(f"Affected Modules: {', '.join(context.change_summary.affected_modules)}")
         lines.append(f"LLM Context (Code Snippets): {context.llm_context}")
         
+        if context.workspace and context.changed_files:
+            lines.append("\n=== FULL SOURCE CODE (CHANGED FILES) ===")
+            for file_rel in context.changed_files:
+                if file_rel.endswith(".py"):
+                    full_path = os.path.join(context.workspace, file_rel)
+                    if os.path.exists(full_path):
+                        try:
+                            with open(full_path, "r", encoding="utf-8") as f:
+                                lines.append(f"\n--- {file_rel} ---")
+                                lines.append(f.read())
+                        except Exception:
+                            pass
+        
         if context.repository_knowledge:
             lines.append("\n=== REPOSITORY KNOWLEDGE (FACTUAL API) ===")
             lines.append("Use these exact methods and fixtures. Do not hallucinate.")

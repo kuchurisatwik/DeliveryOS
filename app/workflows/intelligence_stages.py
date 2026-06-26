@@ -9,14 +9,17 @@ from app.services.knowledge_aggregator import RepositoryKnowledgeAggregator
 
 class GitDiffCollectorStage(Stage):
     """Step 1: Collects the structured git diff."""
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None) -> None:
+    def __init__(self, git_service: GitService):
+        self.git_service = git_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("Workspace is not set.")
-        context.structured_diff = git_service.get_commit_diff(context.workspace, context.commit_sha)
+        context.structured_diff = self.git_service.get_commit_diff(context.workspace, context.commit_sha)
 
 class FileClassifierStage(Stage):
     """Step 2: Classifies changed files by type."""
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None) -> None:
+    def execute(self, context: WorkflowContext) -> None:
         categories = {
             "Backend": [],
             "Frontend": [],
@@ -47,12 +50,14 @@ class FileClassifierStage(Stage):
 
 class MetadataExtractorStage(Stage):
     """Step 3: Extracts software metadata deterministically."""
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None) -> None:
+    def __init__(self, aggregator: RepositoryKnowledgeAggregator):
+        self.aggregator = aggregator
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("Workspace is not set for MetadataExtractorStage.")
             
-        aggregator = RepositoryKnowledgeAggregator()
-        knowledge = aggregator.build_or_load(context.workspace)
+        knowledge = self.aggregator.build_or_load(context.workspace, context.commit_sha)
         context.repository_knowledge = knowledge
         
         # Keep minimal backward compatibility for extracted_metadata
@@ -70,7 +75,7 @@ class MetadataExtractorStage(Stage):
 
 class ContextBuilderStage(Stage):
     """Step 4: Builds a compact string for the LLM."""
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None) -> None:
+    def execute(self, context: WorkflowContext) -> None:
         # Build a concise representation
         lines = []
         lines.append(f"Repository: {context.repository}")
@@ -100,7 +105,11 @@ class ContextBuilderStage(Stage):
         if context.repository_knowledge:
             lines.append("\n## Repository Knowledge (Relevant to Changes)")
             lines.append("### Classes")
-            for f in context.changed_files:
+            target_files = context.changed_files
+            if not any(f.endswith('.py') for f in target_files):
+                target_files = list(set(list(context.repository_knowledge.class_index.keys()) + list(context.repository_knowledge.method_index.keys())))
+                
+            for f in target_files:
                 if f in context.repository_knowledge.class_index:
                     for cls in context.repository_knowledge.class_index[f]:
                         lines.append(f"Class {cls.name}:")
@@ -108,7 +117,7 @@ class ContextBuilderStage(Stage):
                             lines.append(f"  def {m.name}({', '.join(m.args)}) -> {m.returns}")
             
             lines.append("### Methods")
-            for f in context.changed_files:
+            for f in target_files:
                 if f in context.repository_knowledge.method_index:
                     for m in context.repository_knowledge.method_index[f]:
                         lines.append(f"def {m.name}({', '.join(m.args)}) -> {m.returns}")
@@ -122,9 +131,10 @@ class ContextBuilderStage(Stage):
 
 class RepositoryUnderstandingAgentStage(Stage):
     """Step 5, 6, 7: LLM Agent, Validation, and Evaluation."""
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None) -> None:
-        if not llm_service:
-            raise ValueError("LLMService is required for the Repository Understanding Agent.")
+    def __init__(self, llm_service: LLMService):
+        self.llm_service = llm_service
+        
+    def execute(self, context: WorkflowContext) -> None:
             
         prompt = f"""
         You are a Senior Software Architect. Understand the following repository changes.
@@ -141,7 +151,7 @@ class RepositoryUnderstandingAgentStage(Stage):
         for attempt in range(max_retries):
             try:
                 # Step 5 & 6: LLM execution and JSON parsing via Pydantic
-                result: ChangeSummarySchema = llm_service.generate_structured_json(
+                result: ChangeSummarySchema = self.llm_service.generate_structured_json(
                     prompt=prompt,
                     schema=ChangeSummarySchema
                 )

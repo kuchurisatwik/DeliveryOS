@@ -16,16 +16,29 @@ class AstPythonExtractor(IntelligenceExtractor):
     """
     
     def extract(self, workspace_path: str, knowledge: RepositoryKnowledge) -> None:
+        current_files = set()
+        
         for root, dirs, files in os.walk(workspace_path):
-            if "venv" in root or ".venv" in root or "__pycache__" in root or ".git" in root:
+            if "venv" in root or ".venv" in root or "__pycache__" in root or ".git" in root or ".ai_cache" in root:
                 continue
                 
             for file in files:
                 if file.endswith(".py"):
                     filepath = os.path.join(root, file)
                     rel_path = os.path.relpath(filepath, workspace_path).replace("\\", "/")
+                    current_files.add(rel_path)
                     
                     try:
+                        mtime = os.path.getmtime(filepath)
+                        
+                        # Differential Cache Check
+                        if rel_path in knowledge.mtimes and knowledge.mtimes[rel_path] == mtime:
+                            continue # File unchanged, skip parsing
+                            
+                        # File changed or is new, remove old references
+                        self._clear_file_knowledge(rel_path, knowledge)
+                        knowledge.mtimes[rel_path] = mtime
+                        
                         with open(filepath, "r", encoding="utf-8") as f:
                             tree = ast.parse(f.read(), filename=filepath)
                             
@@ -35,6 +48,22 @@ class AstPythonExtractor(IntelligenceExtractor):
                         pass # Ignore files with syntax errors during static extraction
                     except Exception as e:
                         pass
+                        
+        # Cleanup deleted files
+        deleted_files = set(knowledge.mtimes.keys()) - current_files
+        for rel_path in deleted_files:
+            self._clear_file_knowledge(rel_path, knowledge)
+            del knowledge.mtimes[rel_path]
+
+    def _clear_file_knowledge(self, rel_path: str, knowledge: RepositoryKnowledge) -> None:
+        """Removes all indexed knowledge for a specific file to allow fresh re-extraction."""
+        knowledge.class_index.pop(rel_path, None)
+        knowledge.method_index.pop(rel_path, None)
+        knowledge.route_index.pop(rel_path, None)
+        knowledge.fixture_index.pop(rel_path, None)
+        knowledge.exception_index.pop(rel_path, None)
+        knowledge.model_index.pop(rel_path, None)
+        knowledge.imports_index.pop(rel_path, None)
 
     def _parse_tree(self, tree: ast.AST, rel_path: str, knowledge: RepositoryKnowledge) -> None:
         classes = []

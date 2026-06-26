@@ -1,5 +1,7 @@
 import json
 import httpx
+import hashlib
+import os
 from typing import Type, TypeVar, Any
 from pydantic import BaseModel
 from app.config.settings import settings
@@ -22,18 +24,42 @@ class LLMService:
         Generates a structured JSON response matching the provided Pydantic schema.
         Falls back to other models if rate limits or availability issues occur.
         """
+        cache_dir = os.path.join(os.getcwd(), ".deliveryos", "cache", "llm")
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        prompt_hash = hashlib.sha256((prompt + schema.__name__).encode()).hexdigest()
+        cache_file = os.path.join(cache_dir, f"{prompt_hash}.json")
+        
+        if os.path.exists(cache_file):
+            logger.info(f"LLM Cache hit for {schema.__name__}.")
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return schema(**data)
+            except Exception as e:
+                logger.warning(f"Failed to load cache: {e}")
+                
+        result = None
         if self.openrouter_key:
             # If the caller passed a raw gemini model name, map it to openrouter syntax
             if not primary_model.startswith("google/"):
                 primary_model = f"google/{primary_model}"
-            return self._call_openrouter(prompt, schema, primary_model)
+            result = self._call_openrouter(prompt, schema, primary_model)
         elif self.gemini_key:
             # If the caller passed an openrouter model name, strip the prefix
             if primary_model.startswith("google/"):
                 primary_model = primary_model.split("/")[-1]
-            return self._call_gemini(prompt, schema, primary_model)
+            result = self._call_gemini(prompt, schema, primary_model)
         else:
             raise ValueError("No LLM API keys are configured.")
+            
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                f.write(result.model_dump_json(indent=2))
+        except Exception as e:
+            logger.warning(f"Failed to write LLM cache: {e}")
+            
+        return result
             
     def _call_openrouter(self, prompt: str, schema: Type[T], primary_model: str) -> T:
         # Enforce structured output via system prompt and json schema mapping

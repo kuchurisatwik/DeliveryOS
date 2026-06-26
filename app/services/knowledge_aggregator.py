@@ -17,24 +17,21 @@ class RepositoryKnowledgeAggregator:
             AstPythonExtractor()
         ]
         
-    def build_or_load(self, workspace_path: str) -> RepositoryKnowledge:
+    def build_or_load(self, workspace_path: str, commit_sha: str = "latest") -> RepositoryKnowledge:
         cache_dir = os.path.join(workspace_path, ".ai_cache")
-        cache_file = os.path.join(cache_dir, "repo_knowledge.json")
+        cache_file = os.path.join(cache_dir, "repo_knowledge_cache.json")
         
-        # Simple cache invalidation strategy for Phase 7:
-        # Rebuild if cache doesn't exist, otherwise load.
-        # In a real scenario, this would hash files or use last modified times.
+        knowledge = RepositoryKnowledge()
         if os.path.exists(cache_file):
-            logger.info("Loading RepositoryKnowledge from cache.")
+            logger.info("Loading RepositoryKnowledge from cache for differential update.")
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    return RepositoryKnowledge(**data)
+                    knowledge = RepositoryKnowledge(**data)
             except Exception as e:
-                logger.warning(f"Failed to load cache: {e}. Rebuilding...")
+                logger.warning(f"Failed to load cache: {e}. Rebuilding from scratch...")
         
-        logger.info("Building RepositoryKnowledge from scratch...")
-        knowledge = RepositoryKnowledge()
+        logger.info("Running intelligence extractors...")
         
         for extractor in self.extractors:
             try:

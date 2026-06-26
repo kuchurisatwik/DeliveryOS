@@ -4,11 +4,11 @@ from app.workflows.stages import Stage
 from app.workflows.orchestrator import WorkflowOrchestrator
 
 class DummySuccessStage(Stage):
-    def execute(self, context, git_service, github_service):
+    def execute(self, context):
         context.status = "STAGE_SUCCESS"
 
 class DummyFailStage(Stage):
-    def execute(self, context, git_service, github_service):
+    def execute(self, context):
         raise ValueError("Simulated failure")
 
 def test_workflow_orchestrator_success():
@@ -20,7 +20,7 @@ def test_workflow_orchestrator_success():
         commit_sha="123"
     )
     stages = [DummySuccessStage()]
-    orchestrator = WorkflowOrchestrator(None, None)
+    orchestrator = WorkflowOrchestrator()
     result = orchestrator.run_pipeline(context, stages)
     
     assert result.status == "SUCCESS"
@@ -36,7 +36,7 @@ def test_workflow_orchestrator_failure():
         commit_sha="123"
     )
     stages = [DummySuccessStage(), DummyFailStage()]
-    orchestrator = WorkflowOrchestrator(None, None)
+    orchestrator = WorkflowOrchestrator()
     result = orchestrator.run_pipeline(context, stages)
     
     assert result.status == "FAILED"

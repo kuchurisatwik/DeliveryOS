@@ -18,15 +18,43 @@ class TestImprovementAgent:
         improvement_plan_text = json.dumps(context.improvement_plan.model_dump(), indent=2) if context.improvement_plan else "[]"
         repo_analysis_text = json.dumps(context.change_summary.model_dump(), indent=2) if context.change_summary else "{}"
         
-        # We need the current state of tests. If not natively in context, we could fetch from workspace,
-        # but context.generated_tests usually has the initial raw strings. We'll use a stringified version.
-        current_tests = "No existing tests passed in context."
-        if context.generated_tests:
-            # Assuming generated_tests is an object with a 'files' array
+        current_tests_dict = {}
+        if context.workspace:
+            import os
+            tests_dir = os.path.join(context.workspace, "tests")
+            if os.path.exists(tests_dir):
+                for root, _, files in os.walk(tests_dir):
+                    for file in files:
+                        if file.endswith(".py"):
+                            file_path = os.path.join(root, file)
+                            try:
+                                with open(file_path, "r", encoding="utf-8") as f:
+                                    rel_path = os.path.relpath(file_path, context.workspace)
+                                    current_tests_dict[rel_path] = f.read()
+                            except Exception:
+                                pass
+        
+        if current_tests_dict:
+            # Also extract any .py filepaths mentioned in the improvement plan to include app code
+            import re
+            mentioned_files = re.findall(r'[\w/\\.-]+\.py', improvement_plan_text)
+            for file_path_rel in set(mentioned_files):
+                if file_path_rel not in current_tests_dict:
+                    full_path = os.path.join(context.workspace, file_path_rel)
+                    if os.path.exists(full_path):
+                        try:
+                            with open(full_path, "r", encoding="utf-8") as f:
+                                current_tests_dict[file_path_rel] = f.read()
+                        except Exception:
+                            pass
+            current_tests = json.dumps(current_tests_dict, indent=2)
+        elif context.generated_tests:
             try:
                 current_tests = json.dumps(context.generated_tests.model_dump(), indent=2)
             except:
                 current_tests = str(context.generated_tests)
+        else:
+            current_tests = "No existing tests passed in context."
                 
         execution_logs = ""
         if context.validation_report:

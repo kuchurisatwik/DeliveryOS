@@ -9,14 +9,11 @@ class Stage(abc.ABC):
     """Abstract base class for a workflow stage."""
     
     @abc.abstractmethod
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def execute(self, context: WorkflowContext) -> None:
         """Executes the stage logic.
         
         Args:
             context: The shared workflow context.
-            git_service: Service for git operations.
-            github_service: Service for GitHub API operations.
-            llm_service: Service for interacting with LLMs.
         """
         pass
 
@@ -25,25 +22,34 @@ class Stage(abc.ABC):
         return self.__class__.__name__
 
 class CloneRepositoryStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
-        context.workspace = git_service.clone_repository(context.clone_url, context.repo_name)
+    def __init__(self, git_service: GitService):
+        self.git_service = git_service
+        
+    def execute(self, context: WorkflowContext) -> None:
+        context.workspace = self.git_service.clone_repository(context.clone_url, context.repo_name)
 
 class AnalyzeFilesStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, git_service: GitService):
+        self.git_service = git_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("Workspace is not set. Cannot analyze files.")
-        context.changed_files = git_service.get_changed_files(context.workspace, context.commit_sha)
+        context.changed_files = self.git_service.get_changed_files(context.workspace, context.commit_sha)
 
 class CreateBranchStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, git_service: GitService):
+        self.git_service = git_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("Workspace is not set. Cannot create branch.")
         timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         context.ai_branch_name = f"ai-sde/review-{context.commit_sha[:7]}-{timestamp_str}"
-        git_service.create_branch(context.workspace, context.ai_branch_name, context.commit_sha)
+        self.git_service.create_branch(context.workspace, context.ai_branch_name, context.commit_sha)
 
 class GenerateDummyReportStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace or not context.ai_branch_name:
             raise ValueError("Workspace or ai_branch_name is not set.")
         report_path = os.path.join(context.workspace, "AI_REPORT.md")
@@ -157,24 +163,31 @@ class GenerateDummyReportStage(Stage):
                     f.write(f"**AI Code Review Approved:** {'Yes' if context.review_report.approved else 'No'}\n")
 
 class CommitStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, git_service: GitService):
+        self.git_service = git_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("Workspace is not set.")
-        git_service.commit_changes(context.workspace, f"Add AI_REPORT for {context.commit_sha[:7]}")
-
+        self.git_service.commit_changes(context.workspace, f"Add AI_REPORT for {context.commit_sha[:7]}")
 class PushBranchStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, git_service: GitService):
+        self.git_service = git_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace or not context.ai_branch_name:
             raise ValueError("Workspace or ai_branch_name is not set.")
-        git_service.push_branch(context.workspace, context.ai_branch_name)
-
+        self.git_service.push_branch(context.workspace, context.ai_branch_name)
 class CreatePullRequestStage(Stage):
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, github_service: GitHubService):
+        self.github_service = github_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.ai_branch_name:
             raise ValueError("ai_branch_name is not set.")
         pr_title = f"AI-SDE: Automated Code Review and Testing for {context.commit_sha[:7]}"
         pr_body = "This PR contains the automated analysis and tests generated by the AI Software Delivery Engineer."
-        context.pr_url = github_service.open_pull_request(
+        context.pr_url = self.github_service.open_pull_request(
             repo_full_name=context.repository,
             head_branch=context.ai_branch_name,
             base_branch=context.branch,

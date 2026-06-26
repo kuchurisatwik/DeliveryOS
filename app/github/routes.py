@@ -8,15 +8,19 @@ from app.workflows.stages import (
     CloneRepositoryStage, CreateBranchStage,
     GenerateDummyReportStage, CommitStage, PushBranchStage, CreatePullRequestStage
 )
-from app.workflows.intelligence_stages import (
-    GitDiffCollectorStage, FileClassifierStage, MetadataExtractorStage,
-    ContextBuilderStage, RepositoryUnderstandingAgentStage
-)
-from app.workflows.planning_stages import TestPlanningAgentStage
-from app.workflows.generation_stages import TestGenerationAgentStage
+from app.workflows.engineering_stage import EngineeringAgentStage
 from app.services.git_service import GitService
 from app.services.github_service import GitHubService
 from app.services.llm_service import LLMService
+from app.services.knowledge_aggregator import RepositoryKnowledgeAggregator
+from app.services.validators import ValidationEngine
+from app.agents.engineering.agent import EngineeringAgent
+from app.agents.repair.agent import RepairAgent
+from app.services.workspace_patch import WorkspacePatchService
+from app.workflows.intelligence_stages import (
+    GitDiffCollectorStage, FileClassifierStage, MetadataExtractorStage,
+    ContextBuilderStage
+)
 from app.config.settings import settings
 from app.utils.logger import logger
 
@@ -36,9 +40,9 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected_signature, signature)
 
 from app.workflows.quality_stages import (
-    ValidationEngineStage, ReviewAgentStage, CoverageAgentStage,
-    ImprovementPlannerStage, TestImprovementAgentStage, WorkspacePatchStage
+    ValidationEngineStage, WorkspacePatchStage
 )
+from app.workflows.repair_stage import RepairAgentStage
 from app.workflows.iteration import IterationController
 
 def run_ai_sde_workflow(push_event: PushEventSchema):
@@ -57,29 +61,28 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     git_service = GitService()
     github_service = GitHubService()
     llm_service = LLMService()
-    orchestrator = WorkflowOrchestrator(git_service, github_service, llm_service)
     
-    # 1. Pre-Loop Stages (Analysis & Planning)
+    aggregator = RepositoryKnowledgeAggregator()
+    engineering_agent = EngineeringAgent(llm_service)
+    validation_engine = ValidationEngine()
+    repair_agent = RepairAgent(llm_service)
+    patch_service = WorkspacePatchService()
+    
+    orchestrator = WorkflowOrchestrator()
+    
+    # 1. Engineering Session (Understanding, Planning, Generation in 1-Call)
     pre_stages = [
-        CloneRepositoryStage(),
-        GitDiffCollectorStage(),
+        CloneRepositoryStage(git_service),
+        GitDiffCollectorStage(git_service),
         FileClassifierStage(),
-        MetadataExtractorStage(),
+        MetadataExtractorStage(aggregator),
         ContextBuilderStage(),
-        RepositoryUnderstandingAgentStage(),
-        TestPlanningAgentStage(),
-        CreateBranchStage(),
+        CreateBranchStage(git_service),
+        EngineeringAgentStage(engineering_agent),
     ]
     res = orchestrator.run_pipeline(context, pre_stages)
     if res.status == "FAILED":
-        logger.error("Pipeline failed during pre-stages. Aborting.")
-        return
-        
-    # 2. Test Generation (Runs EXACTLY ONCE)
-    gen_stage = [TestGenerationAgentStage()]
-    res = orchestrator.run_pipeline(context, gen_stage)
-    if res.status == "FAILED":
-        logger.error("Pipeline failed during Test Generation. Aborting.")
+        logger.error("Pipeline failed during Engineering Session. Aborting.")
         return
         
     # 3. Validation & Improvement Engine Loop
@@ -87,7 +90,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     
     while True:
         # Step 3a: Deterministic Validation
-        val_stage = [ValidationEngineStage()]
+        val_stage = [ValidationEngineStage(validation_engine)]
         res = orchestrator.run_pipeline(context, val_stage)
         if res.status == "FAILED":
             logger.error("Pipeline failed during Validation. Aborting.")
@@ -99,13 +102,10 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
             
         logger.info(f"Triggering improvement iteration {context.iteration_count}...")
         
-        # Step 3b: Analysis, Planning, and Patching
+        # Step 3b: Unified Repair Session
         improvement_stages = [
-            ReviewAgentStage(),
-            CoverageAgentStage(),
-            ImprovementPlannerStage(),
-            TestImprovementAgentStage(),
-            WorkspacePatchStage()
+            RepairAgentStage(repair_agent),
+            WorkspacePatchStage(patch_service)
         ]
         res = orchestrator.run_pipeline(context, improvement_stages)
         if res.status == "FAILED":
@@ -120,9 +120,9 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     # 5. Post-Loop Stages (Commit & PR)
     post_stages = [
         GenerateDummyReportStage(),
-        CommitStage(),
-        PushBranchStage(),
-        CreatePullRequestStage()
+        CommitStage(git_service),
+        PushBranchStage(git_service),
+        CreatePullRequestStage(github_service)
     ]
     orchestrator.run_pipeline(context, post_stages)
 

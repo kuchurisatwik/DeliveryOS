@@ -12,47 +12,51 @@ from app.services.workspace_patch import WorkspacePatchService
 
 class ValidationEngineStage(Stage):
     """Deterministically runs all validation services in the workspace."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, engine: ValidationEngine):
+        self.engine = engine
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("ValidationEngineStage requires a workspace path.")
             
         logger.info(f"Iteration {context.iteration_count}: Running Validation Engine...")
-        engine = ValidationEngine()
-        report = engine.run_all(context.workspace)
+        report = self.engine.run_all(context.workspace)
         context.validation_report = report
         
         logger.info(f"Validation complete. Build: {report.build_status}, Syntax: {report.syntax_status.passed}, Tests Passed: {report.execution_report.passed if report.execution_report else 0}")
 
 class ReviewAgentStage(Stage):
     """AI agent reviews the generated tests based on validation report."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, agent: ReviewAgent):
+        self.agent = agent
+        
+    def execute(self, context: WorkflowContext) -> None:
         logger.info(f"Iteration {context.iteration_count}: Review Agent analyzing tests...")
-        agent = ReviewAgent()
-        report = agent.review_tests(context)
+        report = self.agent.review_tests(context)
         context.review_report = report
         
         logger.info(f"Review Agent complete. Approved: {report.approved}")
 
 class CoverageAgentStage(Stage):
     """AI agent maps coverage gaps to missing test scenarios."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, agent: CoverageAgent):
+        self.agent = agent
+        
+    def execute(self, context: WorkflowContext) -> None:
         logger.info(f"Iteration {context.iteration_count}: Coverage Agent mapping gaps...")
-        agent = CoverageAgent()
-        analysis = agent.analyze_coverage(context)
+        analysis = self.agent.analyze_coverage(context)
         context.coverage_analysis = analysis
         
         logger.info(f"Coverage Agent complete. Found {len(analysis.missing_scenarios)} missing scenarios.")
 
 class ImprovementPlannerStage(Stage):
     """Deterministically merges all reports into an ImprovementPlan."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, planner: ImprovementPlanner):
+        self.planner = planner
+        
+    def execute(self, context: WorkflowContext) -> None:
         logger.info(f"Iteration {context.iteration_count}: Building improvement plan...")
-        planner = ImprovementPlanner()
-        plan = planner.build_plan(
+        plan = self.planner.build_plan(
             validation=context.validation_report,
             review=context.review_report,
             coverage=context.coverage_analysis
@@ -63,15 +67,16 @@ class ImprovementPlannerStage(Stage):
 
 class TestImprovementAgentStage(Stage):
     """AI agent generates targeted patches based on the ImprovementPlan."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, agent: TestImprovementAgent):
+        self.agent = agent
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.improvement_plan or len(context.improvement_plan.actions) == 0:
             logger.info("No improvement actions required. Skipping TestImprovementAgent.")
             return
             
         logger.info(f"Iteration {context.iteration_count}: Generating targeted patches...")
-        agent = TestImprovementAgent()
-        patches = agent.generate_patches(context)
+        patches = self.agent.generate_patches(context)
         context.patch_artifact = patches
         
         # Save into history
@@ -81,14 +86,15 @@ class TestImprovementAgentStage(Stage):
 
 class WorkspacePatchStage(Stage):
     """Deterministically applies the patch artifact to the workspace."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
+    def __init__(self, patch_service: WorkspacePatchService):
+        self.patch_service = patch_service
+        
+    def execute(self, context: WorkflowContext) -> None:
         if not context.patch_artifact or len(context.patch_artifact.patches) == 0:
             logger.info("No patches to apply. Skipping WorkspacePatchStage.")
             return
             
         logger.info(f"Iteration {context.iteration_count}: Applying patches to workspace...")
-        patch_service = WorkspacePatchService()
-        patch_service.apply_patches(context.workspace, context.patch_artifact)
+        self.patch_service.apply_patches(context.workspace, context.patch_artifact)
         
         logger.info("Workspace Patch applied.")

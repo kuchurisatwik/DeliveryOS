@@ -37,3 +37,6 @@ class RepositoryKnowledge(BaseModel):
     
     # Simple dependency tracking mapping file -> list of imported modules/classes
     imports_index: Dict[str, List[str]] = Field(default_factory=dict)
+    
+    # Differential caching
+    mtimes: Dict[str, float] = Field(default_factory=dict)

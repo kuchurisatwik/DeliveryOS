@@ -34,6 +34,7 @@ class WorkflowContext(BaseModel):
     repository_knowledge: Optional[Any] = Field(None, description="Structured Repository Knowledge object")
     llm_context: str = Field("", description="Compact context string for the LLM")
     change_summary: Optional[ChangeSummarySchema] = Field(None, description="LLM generated summary of changes")
+    engineering_session: Optional[Any] = Field(None, description="Unified engineering session result")
     
     repository_language: Optional[str] = Field(None, description="Detected primary language")
     framework: Optional[str] = Field(None, description="Detected framework")

@@ -8,10 +8,10 @@ from app.services.workspace_writer import WorkspaceWriterService
 
 class TestGenerationAgentStage(Stage):
     """Executes the Test Generation Agent (SDET) and writes the results to the workspace."""
-    
-    def execute(self, context: WorkflowContext, git_service: GitService, github_service: GitHubService, llm_service: 'LLMService' = None) -> None:
-        if not llm_service:
-            raise ValueError("TestGenerationAgentStage requires an LLMService instance")
+    def __init__(self, llm_service: 'LLMService'):
+        self.llm_service = llm_service
+        
+    def execute(self, context: WorkflowContext) -> None:
             
         if not context.test_plan:
             logger.warning("No test_plan found in context. Skipping TestGenerationAgentStage.")
@@ -21,7 +21,7 @@ class TestGenerationAgentStage(Stage):
             raise ValueError("No workspace path set in context. Cannot generate and write tests.")
             
         logger.info("Calling Test Generation Agent (Senior SDET)...")
-        agent = TestGenerationAgent(llm_service)
+        agent = TestGenerationAgent(self.llm_service)
         
         # 1. Reasoning Phase (AI)
         artifact = agent.generate_tests(context)

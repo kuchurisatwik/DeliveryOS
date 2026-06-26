@@ -14,11 +14,6 @@ from app.services.llm_service import LLMService
 class WorkflowOrchestrator:
     """Coordinates workflow stages and manages state."""
     
-    def __init__(self, git_service: GitService, github_service: GitHubService, llm_service: LLMService = None):
-        self.git_service = git_service
-        self.github_service = github_service
-        self.llm_service = llm_service
-
     def run_pipeline(self, context: WorkflowContext, stages: List[Stage]) -> WorkflowResult:
         """Executes a list of stages sequentially."""
         start_time = time.time()
@@ -34,7 +29,7 @@ class WorkflowOrchestrator:
             stage_start_time = time.time()
             
             try:
-                stage.execute(context, self.git_service, self.github_service, self.llm_service)
+                stage.execute(context)
                 
                 stage_duration = time.time() - stage_start_time
                 completed_stages.append(stage_name)
