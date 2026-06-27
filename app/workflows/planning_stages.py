@@ -1,13 +1,15 @@
 from app.workflows.stages import Stage
 from app.workflows.context import WorkflowContext
-from app.services.git_service import GitService
-from app.services.github_service import GitHubService
+
+
+
 from app.utils.logger import logger
 from app.agents.test_planning.planner import TestPlannerAgent
 
 class TestPlanningAgentStage(Stage):
+    # Define correctly after LLMService is resolved.
     """Executes the Test Planning Agent to build a test plan from the architectural summary."""
-    def __init__(self, llm_service: 'LLMService'):
+    def __init__(self, llm_service: 'app.services.llm_service.LLMService'):
         self.llm_service = llm_service
         
     def execute(self, context: WorkflowContext) -> None:

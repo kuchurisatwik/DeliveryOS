@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+
+
 
 from app.workflows.context import ChangeSummarySchema
 from app.schemas.test_plan import TestPlanSchema
