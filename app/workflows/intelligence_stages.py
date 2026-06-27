@@ -82,45 +82,85 @@ class ContextBuilderStage(Stage):
         lines.append(f"Commit: {context.commit_sha}")
         lines.append(f"Detected Framework: {context.framework or 'Unknown'}")
         
+        lines.append("\n## Changed Files")
+        if context.changed_files:
+            for f in context.changed_files:
+                lines.append(f"  - {f}")
+        else:
+            lines.append("  (none detected)")
+        
         lines.append("\n## File Categories")
         for category, files in context.file_categories.items():
             if files:
                 lines.append(f"- {category}: {', '.join(files)}")
                 
+        # Build a combined set of target files from both changed_files AND structured_diff
+        target_files = list(context.changed_files) if context.changed_files else []
+        for change_type in ["added", "modified"]:
+            for f in context.structured_diff.get(change_type, []):
+                path = f.get("path", "")
+                if path and path not in target_files:
+                    target_files.append(path)
+                
         lines.append("\n## Extracted Metadata (Added/Modified)")
-        lines.append(f"- New Routes: {', '.join(context.extracted_metadata['routes']) or 'None'}")
-        lines.append(f"- New Classes: {', '.join(context.extracted_metadata['classes']) or 'None'}")
-        lines.append(f"- New Functions: {', '.join(context.extracted_metadata['functions']) or 'None'}")
+        # Re-extract from target_files to ensure we always have data
+        classes_found = []
+        routes_found = []
+        functions_found = []
+        if context.repository_knowledge:
+            for f in target_files:
+                if f in context.repository_knowledge.class_index:
+                    classes_found.extend([c.name for c in context.repository_knowledge.class_index[f]])
+                if f in context.repository_knowledge.route_index:
+                    routes_found.extend([r.path for r in context.repository_knowledge.route_index[f]])
+                if f in context.repository_knowledge.method_index:
+                    functions_found.extend([m.name for m in context.repository_knowledge.method_index[f]])
+        
+        lines.append(f"- New Routes: {', '.join(routes_found) or 'None'}")
+        lines.append(f"- New Classes: {', '.join(classes_found) or 'None'}")
+        lines.append(f"- New Functions: {', '.join(functions_found) or 'None'}")
+        
+        # Also update context.extracted_metadata for backward compat
+        context.extracted_metadata = {
+            "functions": functions_found,
+            "classes": classes_found,
+            "routes": routes_found,
+            "decorators": []
+        }
         
         lines.append("\n## Diff Highlights")
         for f in context.structured_diff.get("added", []):
             lines.append(f"\n[ADDED] {f['path']}")
-            lines.append(f['diff'][:1000]) # truncated to save tokens
+            lines.append(f['diff'][:2000])  # increased from 1000 to 2000
             
         for f in context.structured_diff.get("modified", []):
             lines.append(f"\n[MODIFIED] {f['path']}")
-            lines.append(f['diff'][:1000])
+            lines.append(f['diff'][:2000])
             
         # Add filtered repository knowledge
         if context.repository_knowledge:
             lines.append("\n## Repository Knowledge (Relevant to Changes)")
-            lines.append("### Classes")
-            target_files = context.changed_files
-            if not any(f.endswith('.py') for f in target_files):
-                target_files = list(set(list(context.repository_knowledge.class_index.keys()) + list(context.repository_knowledge.method_index.keys())))
+            
+            # If no target files from diff, fall back to all known files
+            if not target_files:
+                target_files = list(set(
+                    list(context.repository_knowledge.class_index.keys()) + 
+                    list(context.repository_knowledge.method_index.keys())
+                ))
                 
+            lines.append("### Classes")
             for f in target_files:
                 if f in context.repository_knowledge.class_index:
                     for cls in context.repository_knowledge.class_index[f]:
-                        lines.append(f"Class {cls.name}:")
+                        lines.append(f"Class {cls.name} (in {f}):")
                         for m in cls.methods:
                             lines.append(f"  def {m.name}({', '.join(m.args)}) -> {m.returns}")
             
-            lines.append("### Methods")
+            lines.append("### Free Functions")
             for f in target_files:
                 if f in context.repository_knowledge.method_index:
                     for m in context.repository_knowledge.method_index[f]:
-                        lines.append(f"def {m.name}({', '.join(m.args)}) -> {m.returns}")
+                        lines.append(f"def {m.name}({', '.join(m.args)}) -> {m.returns}  # in {f}")
                         
             lines.append("### Fixtures")
             for f in context.repository_knowledge.fixture_index.values():

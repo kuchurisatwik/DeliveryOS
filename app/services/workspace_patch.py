@@ -1,4 +1,5 @@
 import os
+import ast
 from app.utils.logger import logger
 from app.schemas.quality import PatchArtifact
 
@@ -6,6 +7,7 @@ class WorkspacePatchService:
     """
     Deterministically applies localized string replacements to files in the workspace based on a PatchArtifact.
     Never uses LLMs, relies strictly on precise exact-string matching.
+    Includes a syntax validation guard to prevent corrupting source files.
     """
     
     def apply_patches(self, workspace_path: str, patch_artifact: PatchArtifact) -> bool:
@@ -26,24 +28,38 @@ class WorkspacePatchService:
                 
             try:
                 with open(full_path, "r", encoding="utf-8") as f:
-                    content = f.read()
+                    original_content = f.read()
                     
                 if not patch.search_block:
                     # Append mode
-                    content = content + "\n\n" + patch.replace_block
-                    logger.info(f"Appended block to {safe_path}")
+                    new_content = original_content + "\n\n" + patch.replace_block
+                    logger.info(f"Appending block to {safe_path}")
                 else:
                     # Replace mode
-                    if patch.search_block not in content:
+                    if patch.search_block not in original_content:
                         logger.error(f"Patch failed: Search block not found in {safe_path}")
                         success = False
                         continue
                         
-                    content = content.replace(patch.search_block, patch.replace_block, 1)
-                    logger.info(f"Replaced block in {safe_path}")
-                    
+                    new_content = original_content.replace(patch.search_block, patch.replace_block, 1)
+                    logger.info(f"Replacing block in {safe_path}")
+                
+                # SYNTAX VALIDATION GUARD: If it's a .py file, verify the patched
+                # content parses without SyntaxError before writing it to disk.
+                if safe_path.endswith(".py"):
+                    try:
+                        ast.parse(new_content, filename=safe_path)
+                    except SyntaxError as e:
+                        logger.error(
+                            f"Patch REJECTED for {safe_path}: would introduce SyntaxError "
+                            f"at line {e.lineno}: {e.msg}. File left unchanged."
+                        )
+                        success = False
+                        continue
+                
                 with open(full_path, "w", encoding="utf-8") as f:
-                    f.write(content)
+                    f.write(new_content)
+                logger.info(f"Patch applied successfully to {safe_path}")
                     
             except Exception as e:
                 logger.error(f"Failed to apply patch to {safe_path}: {e}")

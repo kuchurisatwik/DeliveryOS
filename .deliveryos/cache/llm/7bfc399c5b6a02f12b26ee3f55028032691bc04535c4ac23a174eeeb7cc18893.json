@@ -1,0 +1,80 @@
+{
+  "reasoning": "The validation report indicates multiple syntax errors, including unexpected indentation and missing indented blocks. There are also several linting issues that need to be resolved, such as the use of bare except clauses and unused imports. Fixing these errors will improve the code's stability and maintainability. Additionally, type errors need to be addressed, ensuring that all imported names are defined and correctly used.",
+  "patches": [
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "        res = orchestrator.run_pipeline(context, improvement_stages)",
+      "replace_block": "        res = orchestrator.run_pipeline(context, improvement_stages)"
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "    orchestrator.run_pipeline(context, post_stages)",
+      "replace_block": "    orchestrator.run_pipeline(context, post_stages)"
+    },
+    {
+      "file_path": "app/schemas/knowledge.py",
+      "search_block": "    framework: Optional[str] = None",
+      "replace_block": "    from typing import Optional\n    framework: Optional[str] = None"
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "                    except Exception:",
+      "replace_block": "                    except Exception as e:\n                        pass"
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "                        pass",
+      "replace_block": "                        pass\n        pass"
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "        # Cleanup deleted files",
+      "replace_block": "        # Cleanup deleted files\n        deleted_files = set(knowledge.mtimes.keys()) - current_files"
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "        # Cleanup deleted files",
+      "replace_block": "        # Cleanup deleted files\n        for rel_path in deleted_files:\n            self._clear_file_knowledge(rel_path, knowledge)"
+    },
+    {
+      "file_path": "app/services/validators.py",
+      "search_block": "from typing import Dict",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/intelligence_stages.py",
+      "search_block": "import json",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/intelligence_stages.py",
+      "search_block": "import re",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/orchestrator.py",
+      "search_block": "from app.workflows.exceptions import WorkflowExecutionError",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "f.write(f\"\\n---\\n\\n## ðŸ”„ Validation & Improvement Engine\\n\\n\")",
+      "replace_block": "f.write(\"\\n---\\n\\n## Validation & Improvement Engine\\n\\n\")"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "f.write(f\"\\n### Test Execution\\n\")",
+      "replace_block": "f.write(\"\\n### Test Execution\\n\")"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "f.write(f\"\\n### AI Review\\n\")",
+      "replace_block": "f.write(\"\\n### AI Review\\n\")"
+    },
+    {
+      "file_path": "tests/test_workflows.py",
+      "search_block": "from app.workflows.results import WorkflowResult",
+      "replace_block": ""
+    }
+  ]
+}

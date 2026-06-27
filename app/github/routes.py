@@ -5,7 +5,7 @@ from app.schemas.webhook import PushEventSchema
 from app.workflows.context import WorkflowContext
 from app.workflows.orchestrator import WorkflowOrchestrator
 from app.workflows.stages import (
-    CloneRepositoryStage, CreateBranchStage,
+    CloneRepositoryStage, AnalyzeFilesStage, CreateBranchStage,
     GenerateDummyReportStage, CommitStage, PushBranchStage, CreatePullRequestStage
 )
 from app.workflows.engineering_stage import EngineeringAgentStage
@@ -73,6 +73,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     # 1. Engineering Session (Understanding, Planning, Generation in 1-Call)
     pre_stages = [
         CloneRepositoryStage(git_service),
+        AnalyzeFilesStage(git_service),
         GitDiffCollectorStage(git_service),
         FileClassifierStage(),
         MetadataExtractorStage(aggregator),
