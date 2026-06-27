@@ -1,7 +1,6 @@
 from app.workflows.stages import Stage
 from app.workflows.context import WorkflowContext
-from app.services.git_service import GitService
-from app.services.github_service import GitHubService
+
 from app.utils.logger import logger
 from app.agents.test_planning.planner import TestPlannerAgent
 
@@ -26,3 +25,6 @@ class TestPlanningAgentStage(Stage):
         context.recommended_test_levels = test_plan.recommended_test_levels
         
         logger.info(f"Test Planning completed. Confidence: {test_plan.confidence}. Priority: {test_plan.priority}")
+
+
+from app.services.llm_service import LLMService

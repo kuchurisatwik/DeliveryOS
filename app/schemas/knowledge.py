@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict
 
 class MethodSignature(BaseModel):
     name: str
@@ -25,6 +25,8 @@ class FixtureSignature(BaseModel):
 class RepositoryKnowledge(BaseModel):
     language: str = Field(default="python")
     framework: Optional[str] = None
+    language: str = Field(default="python")
+    framework: Optional[str] = None
     testing_framework: str = Field(default="pytest")
     
     # Indexes mapping file paths (or module paths) to lists of objects
@@ -40,3 +42,25 @@ class RepositoryKnowledge(BaseModel):
     
     # Differential caching
     mtimes: Dict[str, float] = Field(default_factory=dict)
+
+
+from typing import Optional
+from typing import List
+
+class MethodSignature(BaseModel):
+    name: str
+    args: List[str]
+    returns: Optional[str] = None
+    is_async: bool = False
+
+class RouteSignature(BaseModel):
+    methods: List[MethodSignature]
+    bases: List[str]
+    docstring: Optional[str] = None
+
+class RepositoryKnowledge(BaseModel):
+    language: str = Field(default="python")
+    framework: Optional[str] = None
+    testing_framework: str = Field(default="pytest")
+
+from typing import Optional
