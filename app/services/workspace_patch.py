@@ -59,6 +59,32 @@ class WorkspacePatchService:
                 
                 with open(full_path, "w", encoding="utf-8") as f:
                     f.write(new_content)
+                
+                # PYTEST COLLECTION GUARD (for framework-level imports/Pydantic errors)
+                if safe_path.endswith(".py"):
+                    import subprocess
+                    try:
+                        res = subprocess.run(
+                            ["pytest", "--collect-only"], 
+                            cwd=workspace_path, 
+                            capture_output=True, 
+                            text=True
+                        )
+                        if res.returncode != 0 and "no tests collected" not in res.stdout:
+                            # Sometimes no tests collected is exit code 5, which is fine, but Exit code 2 (collection error) is bad.
+                            if res.returncode == 2 or "ERROR" in res.stdout or "Error" in res.stderr:
+                                logger.error(
+                                    f"Patch REJECTED for {safe_path}: introduced collection error (e.g. NameError/Pydantic error). "
+                                    f"Stdout snippet: {res.stdout[:200]}"
+                                )
+                                # Revert
+                                with open(full_path, "w", encoding="utf-8") as f:
+                                    f.write(original_content)
+                                success = False
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Could not run collection guard: {e}")
+                        
                 logger.info(f"Patch applied successfully to {safe_path}")
                     
             except Exception as e:

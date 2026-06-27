@@ -1,0 +1,50 @@
+{
+  "reasoning": "The tests failed mainly due to undefined names such as 'Optional' in the knowledge.py file, which indicates that necessary imports were not included. Additionally, there were linting issues related to the positioning of import statements in the routes.py file. I will fix the import location in routes.py, add the missing imports in knowledge.py, and resolve any other identified linting errors.",
+  "patches": [
+    {
+      "file_path": "app/schemas/knowledge.py",
+      "search_block": "",
+      "replace_block": "from typing import Optional\nfrom typing import List\n\nclass MethodSignature(BaseModel):\n    name: str\n    args: List[str]\n    returns: Optional[str] = None\n    is_async: bool = False\n\nclass RouteSignature(BaseModel):\n    methods: List[MethodSignature]\n    bases: List[str]\n    docstring: Optional[str] = None\n\nclass RepositoryKnowledge(BaseModel):\n    language: str = Field(default=\"python\")\n    framework: Optional[str] = None\n    testing_framework: str = Field(default=\"pytest\")"
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "    from app.workflows.repair_stage import RepairAgentStage\n    from app.workflows.iteration import IterationController\n",
+      "replace_block": "from app.workflows.repair_stage import RepairAgentStage\nfrom app.workflows.iteration import IterationController\n"
+    },
+    {
+      "file_path": "app/workflows/generation_stages.py",
+      "search_block": "from app.services.github_service import GitHubService\n",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/planning_stages.py",
+      "search_block": "from app.services.github_service import GitHubService\n",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/quality_stages.py",
+      "search_block": "from app.services.github_service import GitHubService\n",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "except Exception as e:\n",
+      "replace_block": "except Exception:\n"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "                f.write(f\"\\n---\\n\\n## ðŸ”„ Validation & Improvement Engine\\n\\n\")\n",
+      "replace_block": "                f.write(\"\\n---\\n\\n## ðŸ”„ Validation & Improvement Engine\\n\\n\")\n"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "                        f.write(f\"\\n### Test Execution\\n\")\n",
+      "replace_block": "                        f.write(\"\\n### Test Execution\\n\")\n"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "                    f.write(f\"\\n### AI Review\\n\")\n",
+      "replace_block": "                    f.write(\"\\n### AI Review\\n\")\n"
+    }
+  ]
+}
