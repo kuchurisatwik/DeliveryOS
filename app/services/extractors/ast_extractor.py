@@ -1,6 +1,6 @@
 import os
 import ast
-from typing import List, Optional
+
 from app.services.extractors.base import IntelligenceExtractor
 from app.schemas.knowledge import (
     RepositoryKnowledge,
@@ -46,7 +46,7 @@ class AstPythonExtractor(IntelligenceExtractor):
                         
                     except SyntaxError:
                         pass # Ignore files with syntax errors during static extraction
-                    except Exception as e:
+                    except Exception:
                         pass
                         
         # Cleanup deleted files

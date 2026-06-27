@@ -1,7 +1,6 @@
 from app.workflows.stages import Stage
 from app.workflows.context import WorkflowContext
-from app.services.git_service import GitService
-from app.services.github_service import GitHubService
+
 from app.utils.logger import logger
 from app.agents.test_generation.generator import TestGenerationAgent
 from app.services.workspace_writer import WorkspaceWriterService
@@ -40,3 +39,6 @@ class TestGenerationAgentStage(Stage):
         context.workspace_changes = written_files
         
         logger.info(f"Successfully wrote {context.generated_files_count} files. Generation confidence: {context.generation_confidence}")
+
+
+from app.services.llm_service import LLMService
