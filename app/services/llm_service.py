@@ -63,7 +63,7 @@ class LLMService:
             
     def _call_openrouter(self, prompt: str, schema: Type[T], primary_model: str) -> T:
         # Enforce structured output via system prompt and json schema mapping
-        system_prompt = f"You are a strict JSON generator. You must respond ONLY with raw JSON matching this exact schema:\n{json.dumps(schema.model_json_schema())}\nDo not include any markdown formatting (like ```json), commentary, or extra text."
+        system_prompt = f"You are a strict JSON data generator. You must respond ONLY with a raw JSON data object that satisfies this schema:\n{json.dumps(schema.model_json_schema())}\n\nIMPORTANT: DO NOT output the schema definition itself (do not output $defs). Output the actual data instance. Do not include any markdown formatting (like ```json), commentary, or extra text."
         
         headers = {
             "Authorization": f"Bearer {self.openrouter_key}",
