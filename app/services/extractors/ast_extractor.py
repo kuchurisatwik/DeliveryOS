@@ -1,6 +1,8 @@
 import os
 import ast
-from typing import List, Optional
+from typing import List
+
+# Unused imports removed as part of linting
 from app.services.extractors.base import IntelligenceExtractor
 from app.schemas.knowledge import (
     RepositoryKnowledge,

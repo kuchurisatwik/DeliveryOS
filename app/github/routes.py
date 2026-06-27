@@ -42,8 +42,8 @@ def verify_signature(payload: bytes, signature: str) -> bool:
 from app.workflows.quality_stages import (
     ValidationEngineStage, WorkspacePatchStage
 )
-from app.workflows.repair_stage import RepairAgentStage
-from app.workflows.iteration import IterationController
+
+
 
 def run_ai_sde_workflow(push_event: PushEventSchema):
     """Background task function to execute the AI-SDE workflow using the orchestrator."""
@@ -87,6 +87,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         return
         
     # 3. Validation & Improvement Engine Loop
+    from app.workflows.iteration import IterationController
     controller = IterationController(max_iterations=5)
     
     while True:
