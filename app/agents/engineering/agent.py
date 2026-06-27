@@ -18,7 +18,6 @@ class EngineeringAgent:
                 
     def conduct_session(self, context: WorkflowContext) -> EngineeringSessionSchema:
         lines = []
-        lines.append(self.prompt_template)
         
         # Section 1: Repository Metadata
         lines.append("\n=== REPOSITORY METADATA ===")
@@ -100,7 +99,10 @@ class EngineeringAgent:
                         lines.append(f.read())
                 except Exception:
                     pass
-                            
+        # Section 7: Critical Rules (Append at the end for Recency Bias)
+        lines.append("\n=== CRITICAL INSTRUCTIONS ===")
+        lines.append(self.prompt_template)
+        
         prompt = "\n".join(lines)
         
         logger.info("Executing unified Engineering Agent (Change Summary + Test Plan + Test Generation)...")

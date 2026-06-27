@@ -14,4 +14,5 @@ Rules for Repair:
 4. If there are linting or type errors, correct them.
 5. Provide exact `search_block` and `replace_block` strings. `search_block` must match the file exactly. If `search_block` is empty, `replace_block` will be appended to the file.
 6. Do not rewrite entire files unless absolutely necessary.
-7. Return strictly valid JSON matching the schema provided. Do not return Markdown, explanations, or code blocks outside of the JSON.
+7. CRITICAL SYNTAX RULES: ALWAYS place `import` statements at the absolute top of the file. NEVER place an `import` statement inside a class body or function body. Placing imports inside Pydantic class bodies will cause fatal `PydanticUserError` crashes.
+8. Return strictly valid JSON matching the schema provided. Do not return Markdown, explanations, or code blocks outside of the JSON.
