@@ -39,6 +39,14 @@ class WorkspacePatchService:
             if not os.path.exists(full_path):
                 if not patch.search_block and self._is_test_file(safe_path):
                     # Creating a new test file — ensure parent dirs exist
+                    if safe_path.endswith(".py"):
+                        try:
+                            ast.parse(patch.replace_block, filename=safe_path)
+                        except SyntaxError as e:
+                            logger.error(f"Patch REJECTED: New file {safe_path} has SyntaxError at line {e.lineno}: {e.msg}.")
+                            success = False
+                            continue
+                            
                     os.makedirs(os.path.dirname(full_path), exist_ok=True)
                     try:
                         with open(full_path, "w", encoding="utf-8") as f:

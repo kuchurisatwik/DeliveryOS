@@ -125,6 +125,11 @@ class EngineeringAgent:
                     prompt=prompt,
                     schema=EngineeringSessionSchema
                 )
+                
+                # Force retry if the model gives up on generating test files
+                if not result.generated_tests.generated_files:
+                    raise ValueError("Model returned an empty generated_files list. You MUST generate at least one test file.")
+                    
                 return result
             except Exception as e:
                 last_error = e

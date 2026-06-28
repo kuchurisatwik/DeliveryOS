@@ -20,8 +20,13 @@ class IterationController:
         val = context.validation_report
         if not val:
             return False
+        
+        # If build is broken (syntax/import error), we MUST repair
+        if not val.build_status:
+            logger.info("Build is broken (syntax/import errors). Triggering repair.")
+            return True
             
-        # Only care about test failures — not lint/type
+        # Check test failures
         if val.execution_report and val.execution_report.failed > 0:
             # Stagnation detection: if tests_passed hasn't improved for 2 iterations, abort
             current_passed = val.execution_report.passed
