@@ -127,4 +127,4 @@ class GitService:
             origin.push(branch_name)
         except Exception as e:
             logger.error(f"Failed to push branch: {e}")
-            # Log error but don't fail completely for dummy test if it fails
+            raise

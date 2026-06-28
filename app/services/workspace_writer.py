@@ -1,14 +1,18 @@
 import os
+import ast
 from typing import List
 from app.schemas.generated_test import GeneratedTestArtifact
 from app.utils.logger import logger
 
 class WorkspaceWriterService:
-    """Service dedicated to writing generated code to the local file system securely."""
+    """Service dedicated to writing generated code to the local file system securely.
+    Includes ast.parse pre-validation for .py files.
+    """
     
     def write_artifact(self, workspace_path: str, artifact: GeneratedTestArtifact) -> List[str]:
         """
         Writes the generated files from the artifact into the workspace.
+        Pre-validates .py files with ast.parse before writing.
         
         Args:
             workspace_path: Absolute path to the cloned repository workspace.
@@ -31,6 +35,17 @@ class WorkspaceWriterService:
             if not os.path.abspath(absolute_path).startswith(os.path.abspath(workspace_path)):
                 logger.warning(f"Skipping dangerous file path: {generated_file.path}")
                 continue
+            
+            # Pre-validate Python files with ast.parse BEFORE writing to disk
+            if safe_relative_path.endswith(".py"):
+                try:
+                    ast.parse(generated_file.content, filename=safe_relative_path)
+                except SyntaxError as e:
+                    logger.error(
+                        f"REJECTED generated file {safe_relative_path}: SyntaxError at line {e.lineno}: {e.msg}. "
+                        f"File will NOT be written to disk."
+                    )
+                    continue
                 
             # Create directories if they don't exist
             os.makedirs(os.path.dirname(absolute_path), exist_ok=True)

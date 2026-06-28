@@ -1,0 +1,60 @@
+{
+  "reasoning": "The validation report indicates several linting and type issues, as well as coverage gaps. Specifically, there are multiple instances of bare except clauses that need to be replaced with more specific exception handling. There are also unnecessary import redefinitions and unused imports that should be removed to comply with best practices. Additionally, the report shows a need for improved test coverage in several source files.",
+  "patches": [
+    {
+      "file_path": "app/agents/review/agent.py",
+      "search_block": "             except:",
+      "replace_block": "             except Exception as e:"
+    },
+    {
+      "file_path": "app/agents/test_improvement/agent.py",
+      "search_block": "             except:",
+      "replace_block": "             except Exception as e:"
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "from app.workflows.quality_stages import (",
+      "replace_block": "from app.workflows.quality_stages import ValidationEngineStage, WorkspacePatchStage"
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "     ValidationEngineStage, WorkspacePatchStage,",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "from app.workflows.repair_stage import RepairAgentStage",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/schemas/session.py",
+      "search_block": "from typing import List",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "from app.services.extractors.base import IntelligenceExtractor",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "except Exception as e:",
+      "replace_block": "except Exception:"
+    },
+    {
+      "file_path": "app/workflows/intelligence_stages.py",
+      "search_block": "def __init__(self, llm_service: 'LLMService'):",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/planning_stages.py",
+      "search_block": "def __init__(self, llm_service: 'LLMService'):",
+      "replace_block": ""
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "f.write(f\"\\n---\\n\\n## ðŸ”„ Validation & Improvement Engine\\n\\n\")",
+      "replace_block": "f.write(\"\\n---\\n\\n## ðŸ”„ Validation & Improvement Engine\\n\\n\")"
+    }
+  ]
+}

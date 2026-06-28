@@ -6,7 +6,9 @@ from app.services.llm_service import LLMService
 from app.utils.logger import logger
 
 class EngineeringAgent:
-    """The unified Engineering Agent (Architect + QA + SDET)."""
+    """The unified Engineering Agent (Architect + QA + SDET).
+    Constructs a focused prompt with commit context and rules at the bottom for recency bias.
+    """
     
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
@@ -17,10 +19,20 @@ class EngineeringAgent:
                 self.prompt_template = f.read()
                 
     def conduct_session(self, context: WorkflowContext) -> EngineeringSessionSchema:
+        # Early exit: if no meaningful changes, skip test generation
+        has_changes = bool(context.changed_files)
+        has_diff = bool(
+            context.structured_diff.get("added") or 
+            context.structured_diff.get("modified")
+        )
+        if not has_changes and not has_diff:
+            logger.warning("No changed files and no diff entries. Skipping test generation for empty commit.")
+            raise ValueError("No meaningful code changes detected in this commit. Cannot generate tests.")
+        
         lines = []
         
         # Section 1: Repository Metadata
-        lines.append("\n=== REPOSITORY METADATA ===")
+        lines.append("=== REPOSITORY METADATA ===")
         lines.append(f"Repository: {context.repository}")
         lines.append(f"Branch: {context.branch}")
         lines.append(f"Commit SHA: {context.commit_sha}")
@@ -33,7 +45,7 @@ class EngineeringAgent:
             for f in context.changed_files:
                 lines.append(f"  - {f}")
         
-        # Section 3: Git Diff (the actual code changes)
+        # Section 3: Git Diff (the actual code changes — the PRIMARY signal)
         if context.structured_diff:
             lines.append("\n=== GIT DIFF (CHANGES TO TEST) ===")
             for t in ["added", "modified", "deleted", "renamed"]:
@@ -46,11 +58,7 @@ class EngineeringAgent:
                             lines.append(f["diff"])
                             lines.append("")
                             
-        # Section 4: Repository Knowledge (from AST)
-        lines.append("\n=== REPOSITORY KNOWLEDGE (INTERNAL API) ===")
-        lines.append(context.llm_context)
-        
-        # Section 5: FULL SOURCE CODE of changed files (CRITICAL for context)
+        # Section 4: FULL SOURCE CODE of changed files (CRITICAL for context)
         if context.workspace and context.changed_files:
             lines.append("\n=== FULL SOURCE CODE (CHANGED FILES) ===")
             for file_rel in context.changed_files:
@@ -65,7 +73,7 @@ class EngineeringAgent:
                         except Exception:
                             pass
         
-        # Section 6: EXISTING TEST FILES (so AI matches patterns, fixtures, conftest)
+        # Section 5: EXISTING TEST FILES (so AI matches patterns, fixtures, conftest)
         if context.workspace:
             lines.append("\n=== EXISTING TEST FILES (MATCH THESE PATTERNS) ===")
             test_dirs = [
@@ -83,7 +91,7 @@ class EngineeringAgent:
                                 try:
                                     with open(test_path, "r", encoding="utf-8") as f:
                                         content = f.read()
-                                    if len(content) < 8000:  # Don't blow up the prompt
+                                    if len(content) < 8000:
                                         lines.append(f"\n--- {rel} ---")
                                         lines.append(content)
                                         test_files_found += 1
@@ -99,8 +107,9 @@ class EngineeringAgent:
                         lines.append(f.read())
                 except Exception:
                     pass
-        # Section 7: Critical Rules (Append at the end for Recency Bias)
-        lines.append("\n=== CRITICAL INSTRUCTIONS ===")
+
+        # Section 6: Critical Rules at the END (Recency Bias — LLM remembers what it read last)
+        lines.append("\n=== CRITICAL INSTRUCTIONS (READ CAREFULLY) ===")
         lines.append(self.prompt_template)
         
         prompt = "\n".join(lines)

@@ -1,25 +1,26 @@
 import subprocess
+import re
 import time
 import os
 from app.schemas.quality import TestExecutionReport
 from app.utils.logger import logger
 
 class TestExecutionService:
-    """Service dedicated to running tests via subprocess deterministically."""
+    """Service dedicated to running tests via subprocess deterministically.
+    Uses pytest -v --tb=short for cleaner, parseable output.
+    """
     
     def run_tests(self, workspace_path: str) -> TestExecutionReport:
         logger.info(f"Running pytest in {workspace_path}")
         start_time = time.time()
         
         try:
-            # We must inject the workspace_path into PYTHONPATH so the generated tests can import the app modules
             env = os.environ.copy()
             env["PYTHONPATH"] = workspace_path
             
-            # Run pytest in the cloned workspace, capturing output
-            # We don't fail immediately on non-zero exit code because test failures are expected
+            # Use -v --tb=short for verbose output with short tracebacks
             result = subprocess.run(
-                ["pytest", "-q"],
+                ["pytest", "-v", "--tb=short"],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
@@ -32,19 +33,33 @@ class TestExecutionService:
             stderr = result.stderr
             exit_code = result.returncode
             
-            # Very basic parsing of pytest stdout for passed/failed
-            # In a real system, you'd use a pytest json report plugin, but we parse summary here
-            passed = stdout.count("PASSED")
-            failed = stdout.count("FAILED")
-            errors = stdout.count("ERROR")
+            # Parse the summary line: "X passed, Y failed, Z errors in N.NNs"
+            passed = 0
+            failed = 0
+            errors = 0
             
-            # Simple extraction of failed test names
+            summary_match = re.search(r'(\d+) passed', stdout)
+            if summary_match:
+                passed = int(summary_match.group(1))
+                
+            failed_match = re.search(r'(\d+) failed', stdout)
+            if failed_match:
+                failed = int(failed_match.group(1))
+                
+            error_match = re.search(r'(\d+) error', stdout)
+            if error_match:
+                errors = int(error_match.group(1))
+            
+            # Extract failed test names from verbose output
             failed_test_names = []
             for line in stdout.split("\n"):
-                if "FAILED" in line and ".py::" in line:
-                    parts = line.split("FAILED")
-                    if len(parts) > 1:
-                        failed_test_names.append(parts[1].strip().split()[0])
+                if "FAILED" in line and "::" in line:
+                    # Format: "tests/test_foo.py::test_bar FAILED"
+                    parts = line.strip().split(" ")
+                    if parts:
+                        test_name = parts[0].strip()
+                        if "::" in test_name:
+                            failed_test_names.append(test_name)
             
             report = TestExecutionReport(
                 passed=passed,
@@ -57,7 +72,7 @@ class TestExecutionService:
                 failed_test_names=failed_test_names
             )
             
-            logger.info(f"Pytest execution finished in {duration:.2f}s. Exit code: {exit_code}")
+            logger.info(f"Pytest execution finished in {duration:.2f}s. Exit code: {exit_code}. Passed: {passed}, Failed: {failed}, Errors: {errors}")
             return report
             
         except Exception as e:

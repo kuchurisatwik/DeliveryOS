@@ -7,8 +7,7 @@ from app.schemas.quality import PatchArtifact, PatchBlock
 class RepairAgentStage(Stage):
     """
     Executes the Unified Repair Agent.
-    Replaces ReviewAgent, CoverageAgent, ImprovementPlanner, and TestImprovementAgent stages.
-    Takes ValidationReport and outputs PatchArtifact.
+    Includes a hard filter that drops any patch targeting non-test files.
     """
     def __init__(self, agent: RepairAgent):
         self.agent = agent
@@ -19,16 +18,20 @@ class RepairAgentStage(Stage):
         # 1. Execute AI Repair Session
         session = self.agent.conduct_session(context)
         
-        # 2. Convert to PatchArtifact for downstream WorkspacePatchStage
-        # (Alternatively, WorkspacePatchStage could be updated to accept RepairSessionSchema directly, 
-        # but maintaining compatibility is safe).
+        # 2. Convert to PatchArtifact with HARD FILTER: only test files allowed
         patches = []
+        dropped = 0
         for p in session.patches:
-            patches.append(PatchBlock(
-                file_path=p.file_path,
-                search_block=p.search_block,
-                replace_block=p.replace_block
-            ))
+            safe_path = p.file_path.lstrip("/\\")
+            if safe_path.startswith("tests/") or safe_path.startswith("test/") or safe_path == "conftest.py" or safe_path.startswith("tests\\") or safe_path.startswith("test\\"):
+                patches.append(PatchBlock(
+                    file_path=p.file_path,
+                    search_block=p.search_block,
+                    replace_block=p.replace_block
+                ))
+            else:
+                logger.warning(f"DROPPED patch for non-test file: {safe_path} — Repair Agent may only patch test files.")
+                dropped += 1
             
         patch_artifact = PatchArtifact(patches=patches)
         context.patch_artifact = patch_artifact
@@ -36,4 +39,4 @@ class RepairAgentStage(Stage):
         # Save into history
         context.iteration_history.append(patch_artifact)
         
-        logger.info(f"RepairAgentStage completed successfully. Generated {len(patches)} patches.")
+        logger.info(f"RepairAgentStage completed. Accepted {len(patches)} patches, dropped {dropped} non-test patches.")

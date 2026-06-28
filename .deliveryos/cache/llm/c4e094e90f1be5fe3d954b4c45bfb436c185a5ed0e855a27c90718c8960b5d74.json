@@ -1,0 +1,95 @@
+{
+  "reasoning": "The code has several linting warnings, mainly regarding the usage of bare 'except' clauses and imports that are not at the top of the file. Additionally, there are unused imports across multiple files and a naming conflict with a duplicate module named 'agent'. To comply with standards and improve code maintainability, we will address these issues in the proposed patches.",
+  "patches": [
+    {
+      "file_path": "app/agents/review/agent.py",
+      "search_block": "             except:",
+      "replace_block": "             except Exception as e:"
+    },
+    {
+      "file_path": "app/agents/test_improvement/agent.py",
+      "search_block": "             except:",
+      "replace_block": "             except Exception as e:"
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "from app.workflows.quality_stages import (",
+      "replace_block": "from app.workflows.quality_stages import (\n    ValidationEngineStage, WorkspacePatchStage,\n"
+    },
+    {
+      "file_path": "app/github/routes.py",
+      "search_block": "from app.workflows.repair_stage import RepairAgentStage",
+      "replace_block": "from app.workflows.repair_stage import RepairAgentStage,\nfrom app.workflows.iteration import IterationController,\n"
+    },
+    {
+      "file_path": "app/schemas/knowledge.py",
+      "search_block": "from typing import List, Dict, Optional, Any",
+      "replace_block": "from typing import List, Dict, Optional\n"
+    },
+    {
+      "file_path": "app/schemas/session.py",
+      "search_block": "from typing import Optional",
+      "replace_block": "from typing import List\n"
+    },
+    {
+      "file_path": "app/schemas/test_plan.py",
+      "search_block": "from typing import List, Optional",
+      "replace_block": "from typing import List\n"
+    },
+    {
+      "file_path": "app/services/extractors/ast_extractor.py",
+      "search_block": "from typing import List",
+      "replace_block": "from app.services.extractors.base import IntelligenceExtractor\n"
+    },
+    {
+      "file_path": "app/services/validators.py",
+      "search_block": "from typing import List",
+      "replace_block": "\n"
+    },
+    {
+      "file_path": "app/workflows/generation_stages.py",
+      "search_block": "from app.services.git_service import GitService",
+      "replace_block": "\n"
+    },
+    {
+      "file_path": "app/workflows/generation_stages.py",
+      "search_block": "from app.services.github_service import GitHubService",
+      "replace_block": "\n"
+    },
+    {
+      "file_path": "app/workflows/intelligence_stages.py",
+      "search_block": "import json\nimport re",
+      "replace_block": "import re\n"
+    },
+    {
+      "file_path": "app/workflows/orchestrator.py",
+      "search_block": "from app.services.git_service import GitService",
+      "replace_block": "\n"
+    },
+    {
+      "file_path": "app/workflows/orchestrator.py",
+      "search_block": "from app.services.github_service import GitHubService",
+      "replace_block": "\n"
+    },
+    {
+      "file_path": "app/workflows/planning_stages.py",
+      "search_block": "from app.services.github_service import GitHubService",
+      "replace_block": "\n"
+    },
+    {
+      "file_path": "app/workflows/engineering_stage.py",
+      "search_block": "def __init__(self, llm_service: 'LLMService'):",
+      "replace_block": "def __init__(self, llm_service: 'LLMService'): # TODO: Define correctly after LLMService is resolved.\n"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "f.write(f\"\\n---\\n\\n## ðŸ”„ Validation & Improvement Engine\\n\\n\")",
+      "replace_block": "f.write(\"\\n---\\n\\n## Validation & Improvement Engine\\n\\n\")\n"
+    },
+    {
+      "file_path": "app/workflows/stages.py",
+      "search_block": "f.write(f\"\\n### Test Execution\\n\")",
+      "replace_block": "f.write(\"\\n### Test Execution\\n\")\n"
+    }
+  ]
+}
