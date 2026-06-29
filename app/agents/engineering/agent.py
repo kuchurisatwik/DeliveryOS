@@ -49,7 +49,7 @@ class EngineeringAgent:
         # Section 4: Target Context (Retrieved Symbols and Tests)
         if hasattr(context, 'llm_context') and context.llm_context:
             lines.append("\n=== REPOSITORY CONTEXT ===")
-            lines.append("IMPORTANT: Do not try to write tests for all files. Pick the SINGLE most critical changed class/function below and write ONE complete test file for it.")
+            # lines.append("IMPORTANT: Do not try to write tests for all files. Pick the SINGLE most critical changed class/function below and write ONE complete test file for it.")
             lines.append(context.llm_context)
 
         # Section 5: Critical Rules at the END (Recency Bias)
