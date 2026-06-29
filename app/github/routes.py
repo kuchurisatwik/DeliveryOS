@@ -12,14 +12,13 @@ from app.workflows.engineering_stage import EngineeringAgentStage
 from app.services.git_service import GitService
 from app.services.github_service import GitHubService
 from app.services.llm_service import LLMService
-from app.services.knowledge_aggregator import RepositoryKnowledgeAggregator
 from app.services.validators import ValidationEngine
 from app.agents.engineering.agent import EngineeringAgent
 from app.agents.repair.agent import RepairAgent
 from app.services.workspace_patch import WorkspacePatchService
 from app.workflows.intelligence_stages import (
-    GitDiffCollectorStage, FileClassifierStage, MetadataExtractorStage,
-    ContextBuilderStage
+    GitDiffCollectorStage, RepositoryIndexerStage, ContextRetrievalStage,
+    PromptAssemblyStage
 )
 from app.config.settings import settings
 from app.utils.logger import logger
@@ -62,7 +61,6 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     github_service = GitHubService()
     llm_service = LLMService()
     
-    aggregator = RepositoryKnowledgeAggregator()
     engineering_agent = EngineeringAgent(llm_service)
     validation_engine = ValidationEngine()
     repair_agent = RepairAgent(llm_service)
@@ -75,9 +73,9 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         CloneRepositoryStage(git_service),
         AnalyzeFilesStage(git_service),
         GitDiffCollectorStage(git_service),
-        FileClassifierStage(),
-        MetadataExtractorStage(aggregator),
-        ContextBuilderStage(),
+        RepositoryIndexerStage(),
+        ContextRetrievalStage(),
+        PromptAssemblyStage(),
         CreateBranchStage(git_service),
         EngineeringAgentStage(engineering_agent),
     ]

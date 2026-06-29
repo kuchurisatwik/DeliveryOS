@@ -58,57 +58,12 @@ class EngineeringAgent:
                             lines.append(f["diff"])
                             lines.append("")
                             
-        # Section 4: FULL SOURCE CODE of changed files (CRITICAL for context)
-        if context.workspace and context.changed_files:
-            lines.append("\n=== FULL SOURCE CODE (CHANGED FILES) ===")
-            for file_rel in context.changed_files:
-                if file_rel.endswith(".py"):
-                    full_path = os.path.join(context.workspace, file_rel)
-                    if os.path.exists(full_path):
-                        try:
-                            with open(full_path, "r", encoding="utf-8") as f:
-                                content = f.read()
-                            lines.append(f"\n--- {file_rel} ---")
-                            lines.append(content)
-                        except Exception:
-                            pass
-        
-        # Section 5: EXISTING TEST FILES (so AI matches patterns, fixtures, conftest)
-        if context.workspace:
-            lines.append("\n=== EXISTING TEST FILES (MATCH THESE PATTERNS) ===")
-            test_dirs = [
-                os.path.join(context.workspace, "tests"),
-                os.path.join(context.workspace, "test"),
-            ]
-            test_files_found = 0
-            for test_dir in test_dirs:
-                if os.path.isdir(test_dir):
-                    for root, _, files in os.walk(test_dir):
-                        for fname in sorted(files):
-                            if fname.endswith(".py") and test_files_found < 5:
-                                test_path = os.path.join(root, fname)
-                                rel = os.path.relpath(test_path, context.workspace).replace("\\", "/")
-                                try:
-                                    with open(test_path, "r", encoding="utf-8") as f:
-                                        content = f.read()
-                                    if len(content) < 8000:
-                                        lines.append(f"\n--- {rel} ---")
-                                        lines.append(content)
-                                        test_files_found += 1
-                                except Exception:
-                                    pass
-            
-            # Also check for conftest.py at root
-            conftest = os.path.join(context.workspace, "conftest.py")
-            if os.path.exists(conftest):
-                try:
-                    with open(conftest, "r", encoding="utf-8") as f:
-                        lines.append("\n--- conftest.py ---")
-                        lines.append(f.read())
-                except Exception:
-                    pass
+        # Section 4: Target Context (Retrieved Symbols and Tests)
+        if hasattr(context, 'llm_context') and context.llm_context:
+            # We don't prepend a header here because the PromptAssemblyEngine already formats it perfectly
+            lines.append(context.llm_context)
 
-        # Section 6: Critical Rules at the END (Recency Bias — LLM remembers what it read last)
+        # Section 5: Critical Rules at the END (Recency Bias)
         lines.append("\n=== CRITICAL INSTRUCTIONS (READ CAREFULLY) ===")
         lines.append(self.prompt_template)
         
