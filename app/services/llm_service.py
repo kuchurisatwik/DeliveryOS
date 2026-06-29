@@ -61,7 +61,10 @@ class LLMService:
             f"that satisfies this schema:\n{json.dumps(schema.model_json_schema())}\n\n"
             f"IMPORTANT: DO NOT output the schema definition itself (do not output $defs). "
             f"Output the actual data instance. Do not include any markdown formatting "
-            f"(like ```json), commentary, or extra text."
+            f"(like ```json), commentary, or extra text.\n\n"
+            f"CRITICAL CONSTRAINT: If the schema requires a list of files or code blocks (e.g., `generated_files`), "
+            f"you MUST fully generate the code and include at least one complete file object in the array. "
+            f"DO NOT return an empty list (`[]`) for code artifacts under any circumstances."
         )
         
         headers = {
