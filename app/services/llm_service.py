@@ -14,7 +14,7 @@ class LLMService:
     Fixed to openai/gpt-4o-mini for all calls.
     """
     
-    FIXED_MODEL = "openai/gpt-4o-mini"
+    FIXED_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
     
     def __init__(self):
         self.openrouter_key = settings.OPENROUTER_API_KEY
