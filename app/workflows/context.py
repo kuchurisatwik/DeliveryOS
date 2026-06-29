@@ -69,7 +69,7 @@ class WorkflowContext(BaseModel):
     review_report: Optional[Any] = Field(None, description="Review report from ReviewAgent")
     coverage_analysis: Optional[Any] = Field(None, description="Coverage analysis from CoverageAnalysisAgent")
     improvement_plan: Optional[Any] = Field(None, description="Deterministic plan for test improvement")
-    patch_artifact: Optional[Any] = Field(None, description="Targeted patch instructions from TestImprovementAgent")
+    repaired_artifact: Optional[Any] = Field(None, description="Completely regenerated files from TestImprovementAgent")
     iteration_history: List[Any] = Field(default_factory=list, description="History of patch iterations to preserve artifacts")
     iteration_count: int = Field(1, description="Current improvement iteration loop")
     merge_confidence: float = Field(0.0, description="Overall confidence (0-100) to merge this commit")

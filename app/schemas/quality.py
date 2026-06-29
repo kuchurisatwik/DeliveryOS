@@ -65,13 +65,10 @@ class CoverageAnalysis(BaseModel):
 class ImprovementPlan(BaseModel):
     actions: List[str] = Field(default_factory=list, description="Deterministic list of actions to take to improve tests")
 
-class PatchBlock(BaseModel):
-    file_path: str = Field(description="The path to the file to modify")
-    search_block: str = Field(default="", description="The exact block of code to search for and replace. If empty, the replace_block is appended to the file.")
-    replace_block: str = Field(description="The code to replace the search_block with, or to append if search_block is empty.")
+from app.schemas.repair import RepairedFile
 
-class PatchArtifact(BaseModel):
-    patches: List[PatchBlock] = Field(default_factory=list, description="List of targeted patches to apply")
+class RepairedArtifact(BaseModel):
+    repaired_files: List[RepairedFile] = Field(default_factory=list, description="List of completely regenerated files to write.")
 
 class GenerationFeedback(BaseModel):
     # Retaining for backward compatibility, but primarily using ImprovementPlan going forward

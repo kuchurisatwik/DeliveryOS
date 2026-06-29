@@ -73,13 +73,12 @@ class RepairAgent:
             return ""
             
         lines = ["\n=== PREVIOUS REPAIR ATTEMPTS (DO NOT REPEAT THESE) ==="]
-        for i, patch_artifact in enumerate(context.iteration_history):
+        for i, repaired_session in enumerate(context.iteration_history):
             lines.append(f"\n--- Attempt {i+1} ---")
-            for p in patch_artifact.patches:
+            for p in repaired_session.repaired_files:
                 lines.append(f"File: {p.file_path}")
-                if p.search_block:
-                    lines.append(f"Search: {p.search_block[:200]}...")
-                lines.append(f"Replace: {p.replace_block[:200]}...")
+                # We do not print the entire previous file to save tokens, just note the attempt failed
+                lines.append("Complete file regeneration attempted but failed validation.")
         
         lines.append("\nThese previous attempts FAILED. Try a different approach.")
         return "\n".join(lines)
@@ -124,7 +123,9 @@ class RepairAgent:
         
         # Critical rules at the end (recency bias)
         lines.append("\n=== REMINDER ===")
-        lines.append("You may ONLY patch files in the tests/ directory. NEVER modify production code under app/.")
+        lines.append("You may ONLY repair files in the tests/ directory. NEVER modify production code under app/.")
+        lines.append("You must regenerate the ENTIRE test file from top to bottom. Do not output partial blocks.")
+        lines.append("Your output will completely overwrite the existing file. Do NOT leave placeholders or omissions.")
         lines.append("Return strictly valid JSON matching the schema provided.")
                         
         prompt = "\n".join(lines)

@@ -1,6 +1,6 @@
 import json
 from app.services.llm_service import LLMService
-from app.schemas.quality import PatchArtifact
+from app.schemas.quality import RepairedArtifact
 from app.agents.test_improvement.prompts import (
     TEST_IMPROVEMENT_SYSTEM_PROMPT,
     TEST_IMPROVEMENT_USER_PROMPT
@@ -12,7 +12,7 @@ class TestImprovementAgent:
     def __init__(self):
         self.llm_service = LLMService()
         
-    def generate_patches(self, context: WorkflowContext) -> PatchArtifact:
+    def generate_repaired_files(self, context: WorkflowContext) -> RepairedArtifact:
         logger.info("Calling Test Improvement Agent (Senior Test Engineer)...")
         
         improvement_plan_text = json.dumps(context.improvement_plan.model_dump(), indent=2) if context.improvement_plan else "[]"
@@ -85,8 +85,8 @@ class TestImprovementAgent:
         
         response = self.llm_service.generate_structured_json(
             prompt=full_prompt,
-            schema=PatchArtifact
+            schema=RepairedArtifact
         )
         
-        logger.info("Test Improvement Agent successfully generated patches.")
+        logger.info("Test Improvement Agent successfully generated repaired files.")
         return response

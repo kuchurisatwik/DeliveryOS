@@ -15,7 +15,7 @@ from app.services.llm_service import LLMService
 from app.services.validators import ValidationEngine
 from app.agents.engineering.agent import EngineeringAgent
 from app.agents.repair.agent import RepairAgent
-from app.services.workspace_patch import WorkspacePatchService
+from app.services.workspace_writer import WorkspaceWriterService
 from app.workflows.intelligence_stages import (
     GitDiffCollectorStage, RepositoryIndexerStage, ContextRetrievalStage,
     PromptAssemblyStage, FeaturePlannerStage
@@ -39,7 +39,7 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected_signature, signature)
 
 from app.workflows.quality_stages import (
-    ValidationEngineStage, WorkspacePatchStage
+    ValidationEngineStage, WorkspaceWriterStage
 )
 from app.workflows.repair_stage import RepairAgentStage
 from app.workflows.iteration import IterationController
@@ -64,7 +64,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     engineering_agent = EngineeringAgent(llm_service)
     validation_engine = ValidationEngine()
     repair_agent = RepairAgent(llm_service)
-    patch_service = WorkspacePatchService()
+    writer_service = WorkspaceWriterService()
     
     orchestrator = WorkflowOrchestrator()
     
@@ -125,7 +125,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
             # Unified Repair Session
             improvement_stages = [
                 RepairAgentStage(repair_agent),
-                WorkspacePatchStage(patch_service)
+                WorkspaceWriterStage(writer_service)
             ]
             res = orchestrator.run_pipeline(context, improvement_stages)
             if res.status == "FAILED":

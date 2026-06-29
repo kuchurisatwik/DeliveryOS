@@ -2,12 +2,13 @@ from app.workflows.stages import Stage
 from app.workflows.context import WorkflowContext
 from app.agents.repair.agent import RepairAgent
 from app.utils.logger import logger
-from app.schemas.quality import PatchArtifact, PatchBlock
+from app.schemas.quality import RepairedArtifact
+from app.schemas.repair import RepairedFile
 
 class RepairAgentStage(Stage):
     """
     Executes the Unified Repair Agent.
-    Includes a hard filter that drops any patch targeting non-test files.
+    Includes a hard filter that drops any rewritten file targeting non-test files.
     """
     def __init__(self, agent: RepairAgent):
         self.agent = agent
@@ -18,25 +19,24 @@ class RepairAgentStage(Stage):
         # 1. Execute AI Repair Session
         session = self.agent.conduct_session(context)
         
-        # 2. Convert to PatchArtifact with HARD FILTER: only test files allowed
-        patches = []
+        # 2. Convert to RepairedArtifact with HARD FILTER: only test files allowed
+        repaired_files = []
         dropped = 0
-        for p in session.patches:
+        for p in session.repaired_files:
             safe_path = p.file_path.lstrip("/\\")
             if safe_path.startswith("tests/") or safe_path.startswith("test/") or safe_path == "conftest.py" or safe_path.startswith("tests\\") or safe_path.startswith("test\\"):
-                patches.append(PatchBlock(
+                repaired_files.append(RepairedFile(
                     file_path=p.file_path,
-                    search_block=p.search_block,
-                    replace_block=p.replace_block
+                    content=p.content
                 ))
             else:
-                logger.warning(f"DROPPED patch for non-test file: {safe_path} — Repair Agent may only patch test files.")
+                logger.warning(f"DROPPED regenerated file for non-test path: {safe_path} — Repair Agent may only rewrite test files.")
                 dropped += 1
             
-        patch_artifact = PatchArtifact(patches=patches)
-        context.patch_artifact = patch_artifact
+        repaired_artifact = RepairedArtifact(repaired_files=repaired_files)
+        context.repaired_artifact = repaired_artifact
         
         # Save into history
-        context.iteration_history.append(patch_artifact)
+        context.iteration_history.append(repaired_artifact)
         
-        logger.info(f"RepairAgentStage completed. Accepted {len(patches)} patches, dropped {dropped} non-test patches.")
+        logger.info(f"RepairAgentStage completed. Accepted {len(repaired_files)} completely regenerated files, dropped {dropped} non-test files.")

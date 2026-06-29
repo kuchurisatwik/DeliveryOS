@@ -8,7 +8,7 @@ from app.agents.review.agent import ReviewAgent
 from app.agents.coverage.agent import CoverageAgent
 from app.workflows.planner import ImprovementPlanner
 from app.agents.test_improvement.agent import TestImprovementAgent
-from app.services.workspace_patch import WorkspacePatchService
+from app.services.workspace_writer import WorkspaceWriterService
 
 class ValidationEngineStage(Stage):
     """Deterministically runs all validation services in the workspace."""
@@ -66,7 +66,7 @@ class ImprovementPlannerStage(Stage):
         logger.info(f"Improvement Planner complete. Actions required: {len(plan.actions)}")
 
 class TestImprovementAgentStage(Stage):
-    """AI agent generates targeted patches based on the ImprovementPlan."""
+    """AI agent generates complete files based on the ImprovementPlan."""
     def __init__(self, agent: TestImprovementAgent):
         self.agent = agent
         
@@ -75,26 +75,26 @@ class TestImprovementAgentStage(Stage):
             logger.info("No improvement actions required. Skipping TestImprovementAgent.")
             return
             
-        logger.info(f"Iteration {context.iteration_count}: Generating targeted patches...")
-        patches = self.agent.generate_patches(context)
-        context.patch_artifact = patches
+        logger.info(f"Iteration {context.iteration_count}: Generating completely rewritten files...")
+        repaired = self.agent.generate_repaired_files(context)
+        context.repaired_artifact = repaired
         
         # Save into history
-        context.iteration_history.append(patches)
+        context.iteration_history.append(repaired)
         
-        logger.info(f"Test Improvement Agent complete. Generated {len(patches.patches)} patches.")
+        logger.info(f"Test Improvement Agent complete. Generated {len(repaired.repaired_files)} files.")
 
-class WorkspacePatchStage(Stage):
-    """Deterministically applies the patch artifact to the workspace."""
-    def __init__(self, patch_service: WorkspacePatchService):
-        self.patch_service = patch_service
+class WorkspaceWriterStage(Stage):
+    """Deterministically applies complete file regeneration to the workspace."""
+    def __init__(self, writer_service: WorkspaceWriterService):
+        self.writer_service = writer_service
         
     def execute(self, context: WorkflowContext) -> None:
-        if not context.patch_artifact or len(context.patch_artifact.patches) == 0:
-            logger.info("No patches to apply. Skipping WorkspacePatchStage.")
+        if not context.repaired_artifact or len(context.repaired_artifact.repaired_files) == 0:
+            logger.info("No files to rewrite. Skipping WorkspaceWriterStage.")
             return
             
-        logger.info(f"Iteration {context.iteration_count}: Applying patches to workspace...")
-        self.patch_service.apply_patches(context.workspace, context.patch_artifact)
+        logger.info(f"Iteration {context.iteration_count}: Overwriting files in workspace...")
+        self.writer_service.write_repaired_files(context.workspace, context.repaired_artifact)
         
-        logger.info("Workspace Patch applied.")
+        logger.info("Workspace rewrite applied.")
