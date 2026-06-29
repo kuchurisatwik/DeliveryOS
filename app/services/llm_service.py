@@ -14,7 +14,7 @@ class LLMService:
     Fixed to openai/gpt-4o-mini for all calls.
     """
     
-    FIXED_MODEL = "google/gemini-2.0-flash-exp:free"
+    FIXED_MODEL = "nousresearch/hermes-3-llama-3.1-405b:free"
     
     def __init__(self):
         self.openrouter_key = settings.OPENROUTER_API_KEY
