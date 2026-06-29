@@ -45,19 +45,7 @@ class EngineeringAgent:
             for f in context.changed_files:
                 lines.append(f"  - {f}")
         
-        # Section 3: Git Diff (the actual code changes — the PRIMARY signal)
-        if context.structured_diff:
-            lines.append("\n=== GIT DIFF (CHANGES TO TEST) ===")
-            for t in ["added", "modified", "deleted", "renamed"]:
-                if context.structured_diff.get(t):
-                    lines.append(f"--- {t.upper()} FILES ---")
-                    for f in context.structured_diff[t]:
-                        lines.append(f"File: {f.get('path')}")
-                        if "diff" in f and f["diff"]:
-                            lines.append("Diff:")
-                            lines.append(f["diff"])
-                            lines.append("")
-                            
+
         # Section 4: Target Context (Retrieved Symbols and Tests)
         if hasattr(context, 'llm_context') and context.llm_context:
             # We don't prepend a header here because the PromptAssemblyEngine already formats it perfectly
@@ -78,7 +66,8 @@ class EngineeringAgent:
             try:
                 result: EngineeringSessionSchema = self.llm_service.generate_structured_json(
                     prompt=prompt,
-                    schema=EngineeringSessionSchema
+                    schema=EngineeringSessionSchema,
+                    skip_cache=(attempt > 0)
                 )
                 
                 # Force retry if the model gives up on generating test files
