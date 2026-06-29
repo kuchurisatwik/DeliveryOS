@@ -55,4 +55,9 @@ You must deeply understand the changes, construct a comprehensive test plan, and
 - Do not test Pydantic schema validation unless the schema itself was changed.
 - Do not write tests that require a running server or real database.
 
+### ABSOLUTELY CRITICAL: YOU MUST GENERATE CODE
+- The `generated_files` array inside your `generated_tests` JSON output MUST NOT BE EMPTY.
+- You MUST output at least one complete, executable test file inside `generated_files` that fulfills your test plan.
+- If you output an empty list for `generated_files`, the entire pipeline will crash and fail. Do not skip this step!
+
 You must return strictly valid JSON matching the schema provided. Do not return Markdown, explanations, or code blocks outside of the JSON.
