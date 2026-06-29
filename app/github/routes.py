@@ -88,6 +88,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     else:
         logger.info(f"Processing {len(context.tasks)} independent Engineering Tasks...")
         
+    controller = None
     for task in context.tasks:
         context.current_task = task
         logger.info(f"==== STARTING TASK: {task.feature_name} ====")
@@ -137,7 +138,8 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
         logger.info(f"==== FINISHED TASK: {task.feature_name} ====\n")
         
     # 4. Calculate Final Merge Confidence
-    controller.calculate_merge_confidence(context)
+    if controller:
+        controller.calculate_merge_confidence(context)
         
     # 5. Post-Loop Stages (Commit & PR)
     post_stages = [

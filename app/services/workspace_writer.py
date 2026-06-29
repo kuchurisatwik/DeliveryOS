@@ -124,3 +124,25 @@ class WorkspaceWriterService:
                 success = False
                 
         return success
+
+    def write_artifact(self, workspace_path: str, artifact: 'GeneratedTestArtifact') -> list[str]:
+        """Writes the newly generated test files to the workspace."""
+        written_files = []
+        for gen_file in artifact.generated_files:
+            safe_path = gen_file.path.lstrip("/\\")
+            full_path = os.path.join(workspace_path, safe_path)
+            
+            # Validation 4: AST and duplicates
+            if safe_path.endswith(".py"):
+                if not self._validate_ast(gen_file.content, safe_path):
+                    logger.warning(f"Initial generated file {safe_path} failed AST validation. It will be passed to Repair loop.")
+            
+            try:
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write(gen_file.content)
+                written_files.append(safe_path)
+            except Exception as e:
+                logger.error(f"Failed to write generated test file {safe_path}: {e}")
+                
+        return written_files
