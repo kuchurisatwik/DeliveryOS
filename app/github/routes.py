@@ -71,11 +71,11 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     # 1. Pre-Stages (Setup & Feature Planning)
     pre_stages = [
         CloneRepositoryStage(git_service),
+        CreateBranchStage(git_service),
         AnalyzeFilesStage(git_service),
         GitDiffCollectorStage(git_service),
         RepositoryIndexerStage(),
-        FeaturePlannerStage(),
-        CreateBranchStage(git_service)
+        FeaturePlannerStage()
     ]
     res = orchestrator.run_pipeline(context, pre_stages)
     if res.status == "FAILED":
