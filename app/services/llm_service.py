@@ -14,7 +14,7 @@ class LLMService:
     Fixed to openai/gpt-4o-mini for all calls.
     """
     
-    FIXED_MODEL = "qwen/qwen-2.5-72b-instruct:free"
+    FIXED_MODEL = "openai/gpt-4o-mini"
     
     def __init__(self):
         self.openrouter_key = settings.OPENROUTER_API_KEY
@@ -78,7 +78,7 @@ class LLMService:
         logger.info(f"Calling OpenRouter LLM ({model}) with structured output requirement...")
         
         payload = {
-            "model": "qwen/qwen-2.5-72b-instruct:free",
+            "model": "openai/gpt-4o-mini",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
