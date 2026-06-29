@@ -6,6 +6,7 @@ from app.services.llm_service import LLMService
 from app.services.repository.indexer import RepositoryIndexer
 from app.services.repository.retriever import ContextRetrievalEngine
 from app.services.repository.prompter import PromptAssemblyEngine
+from app.services.repository.planner import FeaturePlanner
 
 class GitDiffCollectorStage(Stage):
     """Step 1: Collects the structured git diff."""
@@ -25,17 +26,27 @@ class RepositoryIndexerStage(Stage):
         indexer = RepositoryIndexer(context.workspace)
         indexer.index_repository()
 
+class FeaturePlannerStage(Stage):
+    """Step 2.5: Decomposes the commit into a queue of focused EngineeringTasks."""
+    def execute(self, context: WorkflowContext) -> None:
+        context.tasks = FeaturePlanner.create_tasks(context.changed_files, context.structured_diff)
+
 class ContextRetrievalStage(Stage):
-    """Step 3: Queries the SQLite index to find symbols affected by the git diff."""
+    """Step 3: Queries the SQLite index to find symbols affected by the current EngineeringTask."""
     def execute(self, context: WorkflowContext) -> None:
         if not context.workspace:
             raise ValueError("Workspace is not set.")
+        if not context.current_task:
+            raise ValueError("No current task set for retrieval.")
             
         retriever = ContextRetrievalEngine(context.workspace)
-        # Use both changed_files and files found in structured diff
-        target_files = list(context.changed_files) if context.changed_files else []
+        
+        # We only retrieve context for the specific files in this task
+        target_files = list(context.current_task.related_files)
+        
+        # Include added/modified files specifically inside this task's diff
         for change_type in ["added", "modified"]:
-            for f in context.structured_diff.get(change_type, []):
+            for f in context.current_task.structured_diff.get(change_type, []):
                 path = f.get("path", "")
                 if path and path not in target_files:
                     target_files.append(path)
@@ -44,14 +55,17 @@ class ContextRetrievalStage(Stage):
         context.retrieved_knowledge = retriever.retrieve(target_files)
 
 class PromptAssemblyStage(Stage):
-    """Step 4: Assembles the highly targeted 15KB prompt string."""
+    """Step 4: Assembles the highly targeted 15KB prompt string for a single feature task."""
     def execute(self, context: WorkflowContext) -> None:
         if not hasattr(context, 'retrieved_knowledge') or not context.retrieved_knowledge:
             context.llm_context = ""
             return
+        if not context.current_task:
+            raise ValueError("No current task set for prompt assembly.")
             
         prompter = PromptAssemblyEngine()
-        context.llm_context = prompter.assemble_prompt(context.structured_diff, context.retrieved_knowledge)
+        # Assemble prompt specifically around the current task's diff
+        context.llm_context = prompter.assemble_prompt(context.current_task.structured_diff, context.retrieved_knowledge)
 
 # NOTE: RepositoryUnderstandingAgentStage is legacy and unused in the unified 1-Call setup, 
 # but kept here if other parts of the system still reference it dynamically.

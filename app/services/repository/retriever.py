@@ -56,7 +56,7 @@ class ContextRetrievalEngine:
                     JOIN symbols s2 ON d.target_symbol_name = s2.name
                     JOIN files f ON s2.file_id = f.id
                     WHERE s1.name = ? AND f.path != ?
-                    LIMIT 5
+                    LIMIT 15
                     """, (symbol.name, symbol.file_path)
                 )
                 
@@ -78,7 +78,7 @@ class ContextRetrievalEngine:
                     FROM tests_mapping tm
                     JOIN files f ON tm.test_file_id = f.id
                     WHERE tm.target_symbol_name = ?
-                    LIMIT 3
+                    LIMIT 10
                     """, (name,)
                 )
                 

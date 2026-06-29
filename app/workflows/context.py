@@ -15,6 +15,12 @@ class ChangeSummarySchema(BaseModel):
     architecture_impact: str = Field(description="Impact on the overall architecture")
     reasoning: str = Field(description="Reasoning for the analysis")
 
+class EngineeringTask(BaseModel):
+    """Represents a single, focused feature engineering task."""
+    feature_name: str = Field(description="The deterministic name of the feature (e.g., 'payment')")
+    related_files: List[str] = Field(default_factory=list, description="List of changed file paths belonging to this feature")
+    structured_diff: Dict[str, Any] = Field(default_factory=lambda: {"added": [], "modified": [], "deleted": [], "renamed": []}, description="Diff isolated to this task's files")
+
 class WorkflowContext(BaseModel):
     """Data object passed between all workflow stages."""
     repository: str = Field(description="Full name of the repository (e.g., owner/repo)")
@@ -24,14 +30,18 @@ class WorkflowContext(BaseModel):
     commit_sha: str = Field(description="The commit SHA that triggered the workflow")
     
     workspace: Optional[str] = Field(None, description="Path to the local cloned repository")
-    changed_files: List[str] = Field(default_factory=list, description="List of files changed in the commit")
+    changed_files: List[str] = Field(default_factory=list, description="List of all files changed in the commit")
     ai_branch_name: Optional[str] = Field(None, description="Name of the newly created branch for AI changes")
     
+    # Phase 2.5: Task Planning
+    tasks: List[EngineeringTask] = Field(default_factory=list, description="Queue of engineering tasks decomposed from the commit")
+    current_task: Optional[EngineeringTask] = Field(None, description="The specific task currently being processed by the loop")
+    
     # Phase 3: Repository Intelligence Data
-    structured_diff: Dict[str, Any] = Field(default_factory=lambda: {"added": [], "modified": [], "deleted": [], "renamed": []}, description="Structured git diff")
+    structured_diff: Dict[str, Any] = Field(default_factory=lambda: {"added": [], "modified": [], "deleted": [], "renamed": []}, description="Structured git diff for the entire commit")
     file_categories: Dict[str, List[str]] = Field(default_factory=dict, description="Categorized changed files")
     extracted_metadata: Dict[str, Any] = Field(default_factory=dict, description="Extracted code metadata")
-    retrieved_knowledge: Optional[Any] = Field(None, description="Structured Retrieved Context object from SQLite")
+    retrieved_knowledge: Optional[Any] = Field(None, description="Structured Retrieved Context object from SQLite for the current task")
     llm_context: str = Field("", description="Compact context string for the LLM")
     change_summary: Optional[ChangeSummarySchema] = Field(None, description="LLM generated summary of changes")
     engineering_session: Optional[Any] = Field(None, description="Unified engineering session result")

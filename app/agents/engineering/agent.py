@@ -19,37 +19,40 @@ class EngineeringAgent:
                 self.prompt_template = f.read()
                 
     def conduct_session(self, context: WorkflowContext) -> EngineeringSessionSchema:
-        # Early exit: if no meaningful changes, skip test generation
-        has_changes = bool(context.changed_files)
+        # Early exit: if no task is set
+        if not context.current_task:
+            raise ValueError("No current task set. Feature Planner failed to extract a task.")
+            
+        task = context.current_task
+        has_changes = bool(task.related_files)
         has_diff = bool(
-            context.structured_diff.get("added") or 
-            context.structured_diff.get("modified")
+            task.structured_diff.get("added") or 
+            task.structured_diff.get("modified")
         )
         if not has_changes and not has_diff:
-            logger.warning("No changed files and no diff entries. Skipping test generation for empty commit.")
-            raise ValueError("No meaningful code changes detected in this commit. Cannot generate tests.")
+            logger.warning("No changed files and no diff entries for this task.")
+            raise ValueError("No meaningful code changes detected in this task.")
         
         lines = []
         
-        # Section 1: Repository Metadata
-        lines.append("=== REPOSITORY METADATA ===")
+        # Section 1: Task Metadata
+        lines.append("=== TASK METADATA ===")
         lines.append(f"Repository: {context.repository}")
         lines.append(f"Branch: {context.branch}")
-        lines.append(f"Commit SHA: {context.commit_sha}")
+        lines.append(f"Feature/Task Name: {task.feature_name}")
         lines.append(f"Language: {context.repository_language or 'Python'}")
         lines.append(f"Framework: {context.framework or 'FastAPI/Pytest'}")
         
         # Section 2: Changed Files List
-        if context.changed_files:
-            lines.append("\n=== CHANGED FILES IN THIS COMMIT ===")
-            for f in context.changed_files:
+        if task.related_files:
+            lines.append("\n=== FILES MODIFIED IN THIS TASK ===")
+            for f in task.related_files:
                 lines.append(f"  - {f}")
         
-
         # Section 4: Target Context (Retrieved Symbols and Tests)
         if hasattr(context, 'llm_context') and context.llm_context:
             lines.append("\n=== REPOSITORY CONTEXT ===")
-            # lines.append("IMPORTANT: Do not try to write tests for all files. Pick the SINGLE most critical changed class/function below and write ONE complete test file for it.")
+            lines.append(f"IMPORTANT: You are writing tests for exactly ONE feature isolated from a larger commit. The feature is: '{task.feature_name}'. Ignore any other changes.")
             lines.append(context.llm_context)
 
         # Section 5: Critical Rules at the END (Recency Bias)

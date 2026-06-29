@@ -18,7 +18,7 @@ from app.agents.repair.agent import RepairAgent
 from app.services.workspace_patch import WorkspacePatchService
 from app.workflows.intelligence_stages import (
     GitDiffCollectorStage, RepositoryIndexerStage, ContextRetrievalStage,
-    PromptAssemblyStage
+    PromptAssemblyStage, FeaturePlannerStage
 )
 from app.config.settings import settings
 from app.utils.logger import logger
@@ -68,50 +68,73 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     
     orchestrator = WorkflowOrchestrator()
     
-    # 1. Engineering Session (Understanding, Planning, Generation in 1-Call)
+    # 1. Pre-Stages (Setup & Feature Planning)
     pre_stages = [
         CloneRepositoryStage(git_service),
         AnalyzeFilesStage(git_service),
         GitDiffCollectorStage(git_service),
         RepositoryIndexerStage(),
-        ContextRetrievalStage(),
-        PromptAssemblyStage(),
-        CreateBranchStage(git_service),
-        EngineeringAgentStage(engineering_agent),
+        FeaturePlannerStage(),
+        CreateBranchStage(git_service)
     ]
     res = orchestrator.run_pipeline(context, pre_stages)
     if res.status == "FAILED":
-        logger.error("Pipeline failed during Engineering Session. Aborting.")
+        logger.error("Pipeline failed during setup. Aborting.")
         return
         
-    # 3. Validation & Improvement Engine Loop
-    controller = IterationController(max_iterations=5)
-    
-    while True:
-        # Step 3a: Deterministic Validation
-        val_stage = [ValidationEngineStage(validation_engine)]
-        res = orchestrator.run_pipeline(context, val_stage)
-        if res.status == "FAILED":
-            logger.error("Pipeline failed during Validation. Aborting.")
-            break
-            
-        if not controller.should_improve(context):
-            logger.info("Quality thresholds met or max iterations reached. Exiting Improvement loop.")
-            break
-            
-        logger.info(f"Triggering improvement iteration {context.iteration_count}...")
+    # 2. Process each EngineeringTask in the queue
+    if not context.tasks:
+        logger.info("No tasks to process. Exiting workflow.")
+    else:
+        logger.info(f"Processing {len(context.tasks)} independent Engineering Tasks...")
         
-        # Step 3b: Unified Repair Session
-        improvement_stages = [
-            RepairAgentStage(repair_agent),
-            WorkspacePatchStage(patch_service)
+    for task in context.tasks:
+        context.current_task = task
+        logger.info(f"==== STARTING TASK: {task.feature_name} ====")
+        
+        # 2a. Engineering Session for this Task
+        engineering_stages = [
+            ContextRetrievalStage(),
+            PromptAssemblyStage(),
+            EngineeringAgentStage(engineering_agent),
         ]
-        res = orchestrator.run_pipeline(context, improvement_stages)
+        res = orchestrator.run_pipeline(context, engineering_stages)
         if res.status == "FAILED":
-            logger.error("Pipeline failed during improvement stages. Aborting.")
-            break
+            logger.error(f"Pipeline failed during Engineering Session for {task.feature_name}. Skipping to next task.")
+            continue
             
-        context.iteration_count += 1
+        # 2b. Validation & Improvement Engine Loop for this Task
+        # Reset iteration count for the new task
+        context.iteration_count = 1
+        controller = IterationController(max_iterations=5)
+        
+        while True:
+            # Deterministic Validation
+            val_stage = [ValidationEngineStage(validation_engine)]
+            res = orchestrator.run_pipeline(context, val_stage)
+            if res.status == "FAILED":
+                logger.error(f"Validation failed fatally for {task.feature_name}. Breaking repair loop.")
+                break
+                
+            if not controller.should_improve(context):
+                logger.info(f"Quality thresholds met or max iterations reached for {task.feature_name}. Exiting loop.")
+                break
+                
+            logger.info(f"[{task.feature_name}] Triggering improvement iteration {context.iteration_count}...")
+            
+            # Unified Repair Session
+            improvement_stages = [
+                RepairAgentStage(repair_agent),
+                WorkspacePatchStage(patch_service)
+            ]
+            res = orchestrator.run_pipeline(context, improvement_stages)
+            if res.status == "FAILED":
+                logger.error(f"Repair failed fatally for {task.feature_name}. Breaking repair loop.")
+                break
+                
+            context.iteration_count += 1
+            
+        logger.info(f"==== FINISHED TASK: {task.feature_name} ====\n")
         
     # 4. Calculate Final Merge Confidence
     controller.calculate_merge_confidence(context)
