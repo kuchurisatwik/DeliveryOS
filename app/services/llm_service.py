@@ -78,7 +78,12 @@ class LLMService:
         logger.info(f"Calling OpenRouter LLM ({model}) with structured output requirement...")
         
         payload = {
-            "model": model,
+            "models": [
+                "meta-llama/llama-3.3-70b-instruct:free",
+                "nousresearch/hermes-3-llama-3.1-405b:free",
+                "qwen/qwen-2.5-72b-instruct:free",
+                "mistralai/mistral-nemo:free"
+            ],
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
