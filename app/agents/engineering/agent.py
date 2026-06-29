@@ -79,5 +79,7 @@ class EngineeringAgent:
             except Exception as e:
                 last_error = e
                 logger.warning(f"EngineeringAgent generation failed (attempt {attempt+1}/{max_retries}): {e}")
+                import time
+                time.sleep(3)
                 
         raise ValueError(f"Failed to generate EngineeringSessionSchema after {max_retries} attempts. Last error: {last_error}")
