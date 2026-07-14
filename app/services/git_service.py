@@ -97,7 +97,12 @@ class GitService:
         repo = git.Repo(repo_path)
         
         if base_commit_sha:
-            # Check out the base commit and clean any leftover files from previous runs
+            # Discard any leftover local changes from previous runs BEFORE switching.
+            # A dirty working tree makes `git checkout <sha>` abort ("Your local
+            # changes would be overwritten"), so we reset + clean first, then check
+            # out the exact base commit and re-clean to guarantee a pristine tree.
+            repo.git.reset('--hard')
+            repo.git.clean('-fd')
             repo.git.checkout(base_commit_sha)
             repo.git.reset('--hard', base_commit_sha)
             repo.git.clean('-fd')

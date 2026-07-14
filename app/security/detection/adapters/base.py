@@ -30,6 +30,7 @@ process (integration tests: task 4.6).
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
@@ -89,10 +90,23 @@ def run_scanner(
     interpret the exit code together with the parsed payload.
     """
 
-    logger.info("Running scanner '%s': %s", scanner_name, " ".join(command))
+    # Resolve the tool to an absolute path via shutil.which. This respects
+    # PATHEXT on Windows (so a tool installed as ``foo.cmd``/``foo.bat`` — e.g.
+    # Checkov — resolves, not just ``foo.exe``) and lets us fail fast with a clear
+    # "not installed" message. Python's subprocess on Windows otherwise only
+    # auto-appends ``.exe`` when given a bare name.
+    argv = list(command)
+    resolved = shutil.which(argv[0])
+    if resolved is None:
+        raise ScannerError(
+            scanner_name, f"tool not installed: '{argv[0]}' not found on PATH"
+        )
+    argv[0] = resolved
+
+    logger.info("Running scanner '%s': %s", scanner_name, " ".join(argv))
     try:
         proc = subprocess.run(
-            list(command),
+            argv,
             capture_output=True,
             text=True,
             check=False,
@@ -101,7 +115,7 @@ def run_scanner(
         )
     except FileNotFoundError as exc:
         raise ScannerError(
-            scanner_name, f"tool not installed: '{command[0]}' not found on PATH"
+            scanner_name, f"tool not installed: '{argv[0]}' not found on PATH"
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise ScannerError(
