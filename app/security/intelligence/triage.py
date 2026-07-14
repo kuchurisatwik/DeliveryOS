@@ -212,7 +212,21 @@ def attach_triage(
     """
     triaged: list[Normalized_Finding] = []
     for finding in findings:
-        assessment = adapter.triage(finding, ctx)
+        try:
+            assessment = adapter.triage(finding, ctx)
+        except Exception as exc:  # noqa: BLE001 - AI augments, never a hard dep
+            # AI triage is an augmentation, not a hard dependency (design: "AI
+            # augments the deterministic scanners; it never replaces them"). If
+            # the LLM is unavailable (e.g. quota/outage), RETAIN the finding
+            # untriaged rather than dropping it or failing the pipeline — the
+            # deterministic finding still matters.
+            logger.warning(
+                "AI triage unavailable for finding %s (%s); retaining untriaged.",
+                finding.finding_id,
+                exc,
+            )
+            triaged.append(finding)
+            continue
         triaged.append(
             replace(
                 finding,

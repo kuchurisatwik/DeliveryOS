@@ -175,7 +175,21 @@ class IntelligenceStage(Stage):
                 unresolved_reason=FALSE_POSITIVE_REASON,
             )
 
-        patch = self._repair_adapter.repair(finding, repo_context)
+        try:
+            patch = self._repair_adapter.repair(finding, repo_context)
+        except Exception as exc:  # noqa: BLE001 - AI augments, never a hard dep
+            # LLM/AI repair outage must not sink the finding: keep it as an
+            # unresolved (remaining) finding for the human reviewer.
+            logger.warning(
+                "AI repair unavailable for finding %s (%s); marking unresolved.",
+                finding.finding_id,
+                exc,
+            )
+            return replace(
+                finding,
+                status=FindingStatus.UNRESOLVED,
+                unresolved_reason="AI repair unavailable (LLM error); finding retained for review.",
+            )
 
         # Requirement 10.4 — no patch means the finding stays unresolved.
         if patch is None:
