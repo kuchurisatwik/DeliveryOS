@@ -20,6 +20,12 @@ from app.workflows.intelligence_stages import (
     GitDiffCollectorStage, RepositoryIndexerStage, ContextRetrievalStage,
     PromptAssemblyStage, FeaturePlannerStage
 )
+from app.security.pipeline import (
+    build_security_stages,
+    ensure_security_inputs,
+    MissingPipelineInputError,
+    run_security_pipeline_with_containment,
+)
 from app.config.settings import settings
 from app.utils.logger import logger
 
@@ -43,12 +49,164 @@ from app.workflows.quality_stages import (
 )
 from app.workflows.repair_stage import RepairAgentStage
 from app.workflows.iteration import IterationController
+from app.services.repository.retriever import ContextRetrievalEngine
+
+# Valid values for the PIPELINE_MODE switch.
+_VALID_PIPELINE_MODES = ("security", "testing", "both")
+
+
+def resolve_pipeline_mode() -> str:
+    """Return the configured pipeline mode, defaulting to 'both' when unset/invalid.
+
+    Reads ``settings.PIPELINE_MODE`` and normalizes it. An unrecognized value
+    falls back to 'both' with a warning so a typo never silently disables a
+    pipeline.
+    """
+    mode = (settings.PIPELINE_MODE or "both").strip().lower()
+    if mode not in _VALID_PIPELINE_MODES:
+        logger.warning(
+            "Unknown PIPELINE_MODE '%s'; expected one of %s. Falling back to 'both'.",
+            settings.PIPELINE_MODE,
+            _VALID_PIPELINE_MODES,
+        )
+        return "both"
+    return mode
+
+
+def _run_testing_pipeline(
+    orchestrator: WorkflowOrchestrator,
+    context: WorkflowContext,
+    engineering_agent: EngineeringAgent,
+    validation_engine: ValidationEngine,
+    repair_agent: RepairAgent,
+    writer_service: WorkspaceWriterService,
+) -> "IterationController | None":
+    """Run the test-generation / validation / repair pipeline over each task.
+
+    Returns the last :class:`IterationController` used (or ``None`` when there were
+    no tasks), so the caller can compute the final merge confidence.
+    """
+    if not context.tasks:
+        logger.info("No tasks to process for the testing pipeline.")
+        return None
+
+    logger.info(f"Processing {len(context.tasks)} independent Engineering Tasks...")
+    controller: "IterationController | None" = None
+
+    for task in context.tasks:
+        context.current_task = task
+        logger.info(f"==== STARTING TASK: {task.feature_name} ====")
+
+        # Engineering Session for this Task
+        engineering_stages = [
+            ContextRetrievalStage(),
+            PromptAssemblyStage(),
+            EngineeringAgentStage(engineering_agent),
+        ]
+        res = orchestrator.run_pipeline(context, engineering_stages)
+        if res.status == "FAILED":
+            logger.error(f"Pipeline failed during Engineering Session for {task.feature_name}. Skipping to next task.")
+            continue
+
+        # Validation & Improvement Engine Loop for this Task
+        context.iteration_count = 1
+        controller = IterationController(max_iterations=5)
+
+        while True:
+            val_stage = [ValidationEngineStage(validation_engine)]
+            res = orchestrator.run_pipeline(context, val_stage)
+            if res.status == "FAILED":
+                logger.error(f"Validation failed fatally for {task.feature_name}. Breaking repair loop.")
+                break
+
+            if not controller.should_improve(context):
+                logger.info(f"Quality thresholds met or max iterations reached for {task.feature_name}. Exiting loop.")
+                break
+
+            logger.info(f"[{task.feature_name}] Triggering improvement iteration {context.iteration_count}...")
+
+            improvement_stages = [
+                RepairAgentStage(repair_agent),
+                WorkspaceWriterStage(writer_service)
+            ]
+            res = orchestrator.run_pipeline(context, improvement_stages)
+            if res.status == "FAILED":
+                logger.error(f"Repair failed fatally for {task.feature_name}. Breaking repair loop.")
+                break
+
+            context.iteration_count += 1
+
+        logger.info(f"==== FINISHED TASK: {task.feature_name} ====\n")
+
+    if controller:
+        controller.calculate_merge_confidence(context)
+    return controller
+
+
+def _run_security_pipeline(
+    orchestrator: WorkflowOrchestrator,
+    context: WorkflowContext,
+    llm_service: LLMService,
+) -> None:
+    """Run the security pipeline (Layers 1→2→3→4) over the whole commit.
+
+    Builds a whole-commit repository context first (so enrichment/reachability
+    cover every changed file regardless of whether the testing loop ran), resolves
+    Repo_Config before Detection (1.5), then runs Detection → Intelligence →
+    Governance in strict order (1.2) with layer-failure containment (1.4). A missing
+    required input halts it with a named diagnostic (1.3).
+    """
+    # Build a fresh whole-commit RepoContext for the security layers. This makes
+    # the security pipeline independent of the per-task testing loop and ensures
+    # enrichment/reachability reflect the entire commit (not just the last task).
+    if context.workspace and context.changed_files:
+        try:
+            engine = ContextRetrievalEngine(context.workspace)
+            context.retrieved_knowledge = engine.retrieve(
+                list(context.changed_files), context.structured_diff
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.warning("Whole-commit context retrieval failed: %s", exc)
+
+    try:
+        ensure_security_inputs(context)
+    except MissingPipelineInputError as e:
+        logger.error(f"Security pipeline halted: {e}")
+        return
+
+    security_stages = build_security_stages(llm_service, workspace=context.workspace)
+    # Layer-failure containment (1.4): an unrecoverable error in any security layer
+    # stops subsequent layers and records the failing layer on the context so the
+    # report sets Pull_Request_Report.failed_layer.
+    sec_res = run_security_pipeline_with_containment(
+        orchestrator, context, security_stages
+    )
+    if sec_res.status == "FAILED":
+        logger.error(
+            "Security pipeline failed in '%s' layer: %s. Continuing to report/PR "
+            "stages so a diagnostic report is still produced.",
+            context.failed_layer,
+            sec_res.errors,
+        )
+
 
 def run_ai_sde_workflow(push_event: PushEventSchema):
-    """Background task function to execute the AI-SDE workflow using the orchestrator."""
+    """Background task function to execute the AI-SDE workflow using the orchestrator.
+
+    The ``PIPELINE_MODE`` setting selects which pipeline(s) run:
+    ``'security'`` (security only), ``'testing'`` (test generation only), or
+    ``'both'`` (default). Shared setup (clone, branch, diff, index, feature
+    planning) and the final report/commit/PR stages always run so a PR is produced
+    regardless of mode.
+    """
     ref = push_event.ref
     base_branch = ref.replace("refs/heads/", "") if "refs/heads/" in ref else "main"
-    
+
+    mode = resolve_pipeline_mode()
+    run_testing = mode in ("testing", "both")
+    run_security = mode in ("security", "both")
+    logger.info(f"Pipeline mode: '{mode}' (testing={run_testing}, security={run_security})")
+
     context = WorkflowContext(
         repository=push_event.repository.full_name,
         repo_name=push_event.repository.name,
@@ -68,7 +226,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     
     orchestrator = WorkflowOrchestrator()
     
-    # 1. Pre-Stages (Setup & Feature Planning)
+    # 1. Pre-Stages (Setup & Feature Planning) — shared by both pipelines.
     pre_stages = [
         CloneRepositoryStage(git_service),
         CreateBranchStage(git_service),
@@ -81,67 +239,23 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     if res.status == "FAILED":
         logger.error("Pipeline failed during setup. Aborting.")
         return
-        
-    # 2. Process each EngineeringTask in the queue
-    if not context.tasks:
-        logger.info("No tasks to process. Exiting workflow.")
+
+    # 2. Testing pipeline (test generation + validation/repair) — optional.
+    if run_testing:
+        _run_testing_pipeline(
+            orchestrator, context, engineering_agent,
+            validation_engine, repair_agent, writer_service,
+        )
     else:
-        logger.info(f"Processing {len(context.tasks)} independent Engineering Tasks...")
-        
-    controller = None
-    for task in context.tasks:
-        context.current_task = task
-        logger.info(f"==== STARTING TASK: {task.feature_name} ====")
-        
-        # 2a. Engineering Session for this Task
-        engineering_stages = [
-            ContextRetrievalStage(),
-            PromptAssemblyStage(),
-            EngineeringAgentStage(engineering_agent),
-        ]
-        res = orchestrator.run_pipeline(context, engineering_stages)
-        if res.status == "FAILED":
-            logger.error(f"Pipeline failed during Engineering Session for {task.feature_name}. Skipping to next task.")
-            continue
-            
-        # 2b. Validation & Improvement Engine Loop for this Task
-        # Reset iteration count for the new task
-        context.iteration_count = 1
-        controller = IterationController(max_iterations=5)
-        
-        while True:
-            # Deterministic Validation
-            val_stage = [ValidationEngineStage(validation_engine)]
-            res = orchestrator.run_pipeline(context, val_stage)
-            if res.status == "FAILED":
-                logger.error(f"Validation failed fatally for {task.feature_name}. Breaking repair loop.")
-                break
-                
-            if not controller.should_improve(context):
-                logger.info(f"Quality thresholds met or max iterations reached for {task.feature_name}. Exiting loop.")
-                break
-                
-            logger.info(f"[{task.feature_name}] Triggering improvement iteration {context.iteration_count}...")
-            
-            # Unified Repair Session
-            improvement_stages = [
-                RepairAgentStage(repair_agent),
-                WorkspaceWriterStage(writer_service)
-            ]
-            res = orchestrator.run_pipeline(context, improvement_stages)
-            if res.status == "FAILED":
-                logger.error(f"Repair failed fatally for {task.feature_name}. Breaking repair loop.")
-                break
-                
-            context.iteration_count += 1
-            
-        logger.info(f"==== FINISHED TASK: {task.feature_name} ====\n")
-        
-    # 4. Calculate Final Merge Confidence
-    if controller:
-        controller.calculate_merge_confidence(context)
-        
-    # 5. Post-Loop Stages (Commit & PR)
+        logger.info("Skipping testing pipeline (PIPELINE_MODE='%s').", mode)
+
+    # 3. Security pipeline (Layers 1→2→3→4) — optional.
+    if run_security:
+        _run_security_pipeline(orchestrator, context, llm_service)
+    else:
+        logger.info("Skipping security pipeline (PIPELINE_MODE='%s').", mode)
+
+    # 4. Post-Loop Stages (Report, Commit & PR) — always run.
     post_stages = [
         GenerateDummyReportStage(),
         CommitStage(git_service),

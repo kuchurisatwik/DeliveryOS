@@ -162,6 +162,100 @@ class GenerateDummyReportStage(Stage):
                     f.write(f"\n### AI Review\n")
                     f.write(f"**AI Code Review Approved:** {'Yes' if context.review_report.approved else 'No'}\n")
 
+            # Layer 4 Governance: append the security-pipeline sections when the
+            # security outputs are present on the context (backward-compatible —
+            # the existing report content above is untouched when they are absent).
+            security_section = _render_security_report_section(context)
+            if security_section:
+                f.write(security_section)
+
+def _render_security_report_section(context: WorkflowContext) -> str:
+    """Assemble and render the Layer 4 security sections, or "" when unavailable.
+
+    Pulls the security-pipeline outputs from the shared context
+    (``intelligence_result``, ``detection_result`` coverage, ``quality_gate``,
+    ``security_merge_confidence``, ``config_substitutions``), assembles a pure
+    :class:`~app.security.models.Pull_Request_Report` via
+    :func:`app.security.governance.report.assemble_pull_request_report`, caches it
+    on ``context.security_report``, and renders it to Markdown (Requirement 14).
+    Never triggers a merge (Requirement 14.5). Returns an empty string when the
+    required security outputs are not present, so non-security runs are unaffected.
+    """
+    intelligence_result = getattr(context, "intelligence_result", None)
+    quality_gate = getattr(context, "quality_gate", None)
+    merge_confidence = getattr(context, "security_merge_confidence", None)
+    failed_layer = getattr(context, "failed_layer", None)
+
+    # Emit a security section when the core Layer 3/4 outputs are present, OR when
+    # a security layer failed — in which case a diagnostic report naming the
+    # failing layer must still be produced (Requirement 1.4).
+    have_core_outputs = (
+        intelligence_result is not None
+        and quality_gate is not None
+        and merge_confidence is not None
+    )
+    if not have_core_outputs and failed_layer is None:
+        return ""
+
+    # Imported lazily so the base workflow has no hard dependency on the
+    # security package when it is not in use.
+    from app.security.governance.report import (
+        assemble_pull_request_report,
+        render_security_sections,
+    )
+    from app.security.models import (
+        GateStatus,
+        IntelligenceResult,
+        Merge_Confidence,
+        MergeConfidenceInputs,
+        Quality_Gate,
+    )
+
+    # On an unrecoverable layer failure the later layers never ran, so their
+    # outputs may be missing. Fill neutral defaults so a report is still produced;
+    # the gate is defaulted to FAILED so an incomplete run never reports a passing
+    # gate (Requirement 1.4).
+    if intelligence_result is None:
+        intelligence_result = IntelligenceResult()
+    if quality_gate is None:
+        quality_gate = Quality_Gate(status=GateStatus.FAILED)
+    if merge_confidence is None:
+        merge_confidence = Merge_Confidence(
+            score=0.0,
+            inputs=MergeConfidenceInputs(
+                testing_confidence=0.0,
+                security_confidence=0.0,
+                coverage_percent=0.0,
+                remaining_findings=len(intelligence_result.remaining),
+                quality_gate_status=quality_gate.status,
+            ),
+        )
+
+    detection_result = getattr(context, "detection_result", None)
+    coverage = tuple(getattr(detection_result, "coverage", ()) or ())
+    substitutions = tuple(getattr(context, "config_substitutions", None) or ())
+
+    security_summary = None
+    if failed_layer:
+        security_summary = (
+            f"Security evaluation incomplete: the {failed_layer} layer terminated "
+            "with an unrecoverable error. Results are partial and no passing gate "
+            "is implied; a human reviewer must account for the missing analysis."
+        )
+
+    report = assemble_pull_request_report(
+        commit_sha=context.commit_sha,
+        intelligence_result=intelligence_result,
+        merge_confidence=merge_confidence,
+        quality_gate=quality_gate,
+        coverage=coverage,
+        config_substitutions=substitutions,
+        security_summary=security_summary,
+        failed_layer=failed_layer,
+    )
+    context.security_report = report
+    return render_security_sections(report)
+
 class CommitStage(Stage):
     def __init__(self, git_service: GitService):
         self.git_service = git_service

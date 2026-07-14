@@ -51,8 +51,11 @@ class ContextRetrievalStage(Stage):
                 if path and path not in target_files:
                     target_files.append(path)
                     
-        # Store for the prompt assembler
-        context.retrieved_knowledge = retriever.retrieve(target_files)
+        # Store for the prompt assembler. Pass the task's structured diff so the
+        # Changed_Feature file set reflects the diff (security layers consume this).
+        context.retrieved_knowledge = retriever.retrieve(
+            target_files, structured_diff=context.current_task.structured_diff
+        )
 
 class PromptAssemblyStage(Stage):
     """Step 4: Assembles the highly targeted 15KB prompt string for a single feature task."""

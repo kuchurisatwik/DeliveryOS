@@ -1,5 +1,7 @@
 from app.workflows.context import WorkflowContext
 from app.utils.logger import logger
+from app.security.governance.merge_confidence import compute_merge_confidence
+from app.security.models import GateStatus, MergeConfidenceInputs
 
 class IterationController:
     """Decides whether to trigger an improvement cycle based on test results only.
@@ -47,28 +49,94 @@ class IterationController:
         return False
 
     def calculate_merge_confidence(self, context: WorkflowContext) -> float:
-        """Calculates a 0-100 metric based on test results and coverage."""
+        """Calculate the advisory 0-100 merge-confidence metric.
+
+        This now delegates to the pure, deterministic
+        :func:`app.security.governance.merge_confidence.compute_merge_confidence`,
+        folding the historical build/test/coverage signal into a single
+        ``testing_confidence`` dimension and adding the security dimension
+        (security confidence, remaining findings, Quality_Gate status).
+
+        Weighting (advisory 0-100): testing confidence 40, security confidence
+        30, coverage 15, Quality_Gate passed 15, minus 2 points per remaining
+        finding (capped at 10 findings / -20). The ``testing_confidence`` fed to
+        the scorer preserves the *relative* weight of the old scheme (30 build +
+        50 test-pass = 80): build contributes 3/8 and the test pass-ratio 5/8.
+
+        Backward compatibility: callers that only rely on
+        ``context.merge_confidence`` keep working. When the security pipeline has
+        not run, the security inputs default to a clean state (full security
+        confidence, no remaining findings, Quality_Gate passed) so the score
+        remains meaningful for test-only runs. The result is advisory and never
+        triggers an automatic merge (Requirement 13.3).
+        """
         val = context.validation_report
         if not val:
             return 0.0
-            
-        score = 0.0
-        
-        # Build & Syntax (30 points)
+
+        # --- Testing confidence (0-1): build + test-pass signal --------------
+        # Preserve the old 30:50 build:test-pass ratio -> 3/8 build, 5/8 tests.
+        testing_confidence = 0.0
         if val.build_status:
-            score += 30.0
-            
-        # Tests Pass Rate (50 points) — increased weight since this is what matters
+            testing_confidence += 3.0 / 8.0
         if val.execution_report:
-            total_tests = val.execution_report.passed + val.execution_report.failed + val.execution_report.errors
+            total_tests = (
+                val.execution_report.passed
+                + val.execution_report.failed
+                + val.execution_report.errors
+            )
             if total_tests > 0:
                 pass_ratio = val.execution_report.passed / total_tests
-                score += (pass_ratio * 50.0)
-                
-        # Coverage (20 points)
+                testing_confidence += (5.0 / 8.0) * pass_ratio
+
+        # --- Coverage (0-100) ------------------------------------------------
+        coverage_percent = 0.0
         if val.coverage_report:
-            cov = min(val.coverage_report.coverage_percentage, 100.0)
-            score += (cov / 100.0) * 20.0
-            
-        context.merge_confidence = round(score, 2)
+            coverage_percent = min(val.coverage_report.coverage_percentage, 100.0)
+
+        # --- Security dimension (defaults to clean when pipeline hasn't run) --
+        security_confidence, remaining_findings, quality_gate_status = (
+            self._derive_security_inputs(context)
+        )
+
+        inputs = MergeConfidenceInputs(
+            testing_confidence=testing_confidence,
+            security_confidence=security_confidence,
+            coverage_percent=coverage_percent,
+            remaining_findings=remaining_findings,
+            quality_gate_status=quality_gate_status,
+        )
+
+        result = compute_merge_confidence(inputs)
+        context.merge_confidence = result.score
         return context.merge_confidence
+
+    @staticmethod
+    def _derive_security_inputs(
+        context: WorkflowContext,
+    ) -> tuple[float, int, GateStatus]:
+        """Derive (security_confidence, remaining_findings, quality_gate_status).
+
+        Reads the Layer 3 ``intelligence_result`` and any Layer 4 ``quality_gate``
+        from the context when the security pipeline has run; otherwise returns a
+        sensible clean default (full confidence, zero remaining findings, gate
+        passed) so test-only runs still produce a meaningful score.
+        """
+        remaining_findings = 0
+        security_confidence = 1.0
+
+        intel = getattr(context, "intelligence_result", None)
+        if intel is not None:
+            fixed = tuple(getattr(intel, "fixed", ()) or ())
+            remaining = tuple(getattr(intel, "remaining", ()) or ())
+            remaining_findings = len(remaining)
+            total = len(fixed) + remaining_findings
+            # Fraction of findings resolved; no findings at all -> full confidence.
+            security_confidence = (len(fixed) / total) if total > 0 else 1.0
+
+        gate = getattr(context, "quality_gate", None)
+        quality_gate_status = getattr(gate, "status", None)
+        if not isinstance(quality_gate_status, GateStatus):
+            quality_gate_status = GateStatus.PASSED
+
+        return security_confidence, remaining_findings, quality_gate_status

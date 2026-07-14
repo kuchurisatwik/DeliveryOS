@@ -11,3 +11,4 @@ google-genai
 pytest-cov
 ruff
 mypy
+hypothesis

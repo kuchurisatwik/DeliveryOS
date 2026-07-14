@@ -73,7 +73,21 @@ class WorkflowContext(BaseModel):
     iteration_history: List[Any] = Field(default_factory=list, description="History of patch iterations to preserve artifacts")
     iteration_count: int = Field(1, description="Current improvement iteration loop")
     merge_confidence: float = Field(0.0, description="Overall confidence (0-100) to merge this commit")
-    
+
+    # Security Pipeline — Layer 2 Detection
+    detection_result: Optional[Any] = Field(None, description="Layer 2 DetectionResult: aggregated Findings + per-scanner coverage")
+
+    # Security Pipeline — Layer 3 Intelligence
+    intelligence_result: Optional[Any] = Field(None, description="Layer 3 IntelligenceResult: findings partitioned into fixed and remaining")
+
+    # Security Pipeline — Layer 4 Governance
+    quality_gate: Optional[Any] = Field(None, description="Layer 4 Quality_Gate evaluation result (status + unsatisfied thresholds)")
+    security_merge_confidence: Optional[Any] = Field(None, description="Layer 4 advisory Merge_Confidence for the security pipeline")
+    config_substitutions: List[Any] = Field(default_factory=list, description="Repo_Config substitutions applied when malformed values were replaced by defaults (15.2)")
+    resolved_config: Optional[Any] = Field(None, description="Immutable Repo_Config ResolvedConfig (thresholds/scanner rules/pipeline settings) resolved before Detection runs (1.5)")
+    security_report: Optional[Any] = Field(None, description="Assembled Layer 4 Pull_Request_Report for the security pipeline")
+    failed_layer: Optional[str] = Field(None, description="Name of the security layer that terminated with an unrecoverable error; set by layer-failure containment so the report records which layer failed (1.4)")
+
     pr_url: Optional[str] = Field(None, description="URL of the created pull request")
     status: str = Field("INITIALIZED", description="Current status of the workflow")
     warnings: List[str] = Field(default_factory=list, description="Warnings generated during workflow")
