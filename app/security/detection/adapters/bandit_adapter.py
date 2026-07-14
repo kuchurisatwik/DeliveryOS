@@ -36,20 +36,29 @@ class BanditAdapter:
     def scan(self, scope: ScanScope) -> list[Finding]:
         if not scope.paths:
             return []
-        # `-r` recurses into any directories in scope; `-f json` yields the
-        # machine-readable report parsed by `parse`.
-        command = ["bandit", "-r", "-f", "json", *scope.paths]
-        result = base.run_scanner(
-            command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
-        )
-        # Bandit exits 0 (no issues) or 1 (issues found); both produce a JSON
-        # report on stdout. Exit code 2 indicates a usage/internal error.
-        if result.returncode >= 2 and not result.stdout.strip():
-            raise ScannerError(
-                self.name, f"exited {result.returncode}: {result.stderr.strip()}"
+        # Write the JSON report to a file (`-o`) instead of stdout: on Windows
+        # Bandit's startup logging goes to stderr and stdout can come back empty,
+        # which broke JSON parsing. `-r` recurses into any scoped directories.
+        report = base.new_temp_report(".json")
+        try:
+            command = ["bandit", "-r", "-f", "json", "-o", report, *scope.paths]
+            result = base.run_scanner(
+                command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
             )
-        payload = base.load_json(result.stdout, scanner_name=self.name, stderr=result.stderr)
-        return self.parse(payload)
+            text = base.read_report(report)
+            # Bandit exits 0 (no issues) or 1 (issues found). Exit >= 2 with no
+            # report written is a genuine usage/internal error.
+            if result.returncode >= 2 and not text.strip():
+                raise ScannerError(
+                    self.name, f"exited {result.returncode}: {result.stderr.strip()}"
+                )
+            if not text.strip():
+                # No report produced (e.g. no Python files in scope) → no findings.
+                return []
+            payload = base.load_json(text, scanner_name=self.name, stderr=result.stderr)
+            return self.parse(payload)
+        finally:
+            base.cleanup(report)
 
     @classmethod
     def parse(cls, payload: Mapping[str, Any]) -> list[Finding]:

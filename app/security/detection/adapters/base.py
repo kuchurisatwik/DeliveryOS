@@ -30,8 +30,10 @@ process (integration tests: task 4.6).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -151,6 +153,74 @@ def load_json(text: str, *, scanner_name: str, stderr: str = "") -> Any:
             f"could not parse output as JSON: {exc}"
             f"{f'; stderr: {stderr.strip()}' if stderr.strip() else ''}",
         ) from exc
+
+
+def new_temp_report(suffix: str) -> str:
+    """Create an empty temp file for a scanner's report and return its path.
+
+    Adapters whose tools mix progress logging into stdout (CodeQL, Bandit,
+    Checkov) write their machine-readable report to this file instead of stdout,
+    so the report is never polluted by log lines / banners.
+    """
+
+    fd, path = tempfile.mkstemp(prefix="secscan-", suffix=suffix)
+    os.close(fd)
+    return path
+
+
+def read_report(path: str) -> str:
+    """Read a scanner's report file, returning ``""`` when absent/unreadable."""
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def cleanup(path: str | None) -> None:
+    """Best-effort removal of a temp report file."""
+
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:  # pragma: no cover - best effort
+        pass
+
+
+def load_json_multi(text: str, *, scanner_name: str, stderr: str = "") -> list[Any]:
+    """Decode one or more *concatenated* JSON documents into a list.
+
+    Some tools (e.g. Checkov scanning multiple frameworks) emit several JSON
+    objects back-to-back rather than a single JSON value, which ``json.loads``
+    rejects with "Extra data". This decodes each document in turn.
+    """
+
+    stripped = text.strip()
+    if not stripped:
+        raise ScannerError(
+            scanner_name,
+            f"empty output; tool produced no report{f': {stderr.strip()}' if stderr.strip() else ''}",
+        )
+    decoder = json.JSONDecoder()
+    docs: list[Any] = []
+    idx = 0
+    length = len(stripped)
+    while idx < length:
+        while idx < length and stripped[idx].isspace():
+            idx += 1
+        if idx >= length:
+            break
+        try:
+            obj, end = decoder.raw_decode(stripped, idx)
+        except json.JSONDecodeError as exc:
+            raise ScannerError(
+                scanner_name, f"could not parse output as JSON: {exc}"
+            ) from exc
+        docs.append(obj)
+        idx = end
+    return docs
 
 
 def map_severity(

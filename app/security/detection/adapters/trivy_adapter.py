@@ -34,15 +34,20 @@ class TrivyAdapter:
         self,
         *,
         scanners: str = "vuln,misconfig,secret",
+        target: str = ".",
         cwd: str | None = None,
         timeout: int = base.DEFAULT_TIMEOUT,
     ) -> None:
         self._scanners = scanners
+        self._target = target
         self._cwd = cwd
         self._timeout = timeout
 
     def scan(self, scope: ScanScope) -> list[Finding]:
-        target = scope.paths[0] if scope.paths else "."
+        # Dependency/OS/container vulns come from manifests & lockfiles that live
+        # across the repo, not in one changed file: scan the whole tree (the repo
+        # root), NOT just the first scoped path.
+        target = self._target
         command = [
             "trivy",
             "fs",

@@ -35,7 +35,7 @@ class SemgrepAdapter:
     def __init__(
         self,
         *,
-        config: str = "auto",
+        config: str = "p/python",
         cwd: str | None = None,
         timeout: int = base.DEFAULT_TIMEOUT,
     ) -> None:

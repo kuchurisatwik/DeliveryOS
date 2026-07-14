@@ -33,9 +33,10 @@ class GitleaksAdapter:
         self._timeout = timeout
 
     def scan(self, scope: ScanScope) -> list[Finding]:
-        # Gitleaks scans a source tree (directory / repo). The scope's first path
-        # narrows the scan when it is a directory; otherwise the configured source.
-        source = scope.paths[0] if scope.paths else self._source
+        # Secrets are repo-wide, not per-changed-file: scan the whole source tree
+        # (the cloned repo root), NOT just the first scoped path. Scoping secret
+        # detection to a single changed file misses secrets everywhere else.
+        source = self._source
         command = [
             "gitleaks",
             "detect",

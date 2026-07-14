@@ -32,28 +32,48 @@ class CheckovAdapter:
 
     name = "checkov"
 
-    def __init__(self, *, cwd: str | None = None, timeout: int = base.DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        *,
+        directory: str = ".",
+        cwd: str | None = None,
+        timeout: int = base.DEFAULT_TIMEOUT,
+    ) -> None:
+        self._directory = directory
         self._cwd = cwd
         self._timeout = timeout
 
     def scan(self, scope: ScanScope) -> list[Finding]:
-        if not scope.paths:
-            return []
-        # Checkov accepts repeated `-d <dir>` / `-f <file>`; use `-d` for the
-        # scoped paths and `-o json` for the machine-readable report.
-        command = ["checkov", "-o", "json", "--compact", "--quiet"]
-        for path in scope.paths:
-            command.extend(["-d", path])
+        # Checkov auto-discovers IaC files (Terraform, CloudFormation, K8s,
+        # Dockerfiles, ...) under a directory, so we point it at the repo root
+        # ONCE rather than passing individual `.py` files with `-d` (which is the
+        # wrong granularity — `-d` expects directories, and IaC is repo-wide).
+        command = [
+            "checkov",
+            "-d",
+            self._directory,
+            "-o",
+            "json",
+            "--compact",
+            "--quiet",
+        ]
         result = base.run_scanner(
             command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
         )
-        # Checkov exits 0 (all passed) or 1 (failed checks) with JSON on stdout.
+        # Checkov exits 0 (all passed) or 1 (failed checks). Exit >= 2 with no
+        # output is a genuine error.
         if result.returncode >= 2 and not result.stdout.strip():
             raise ScannerError(
                 self.name, f"exited {result.returncode}: {result.stderr.strip()}"
             )
-        payload = base.load_json(result.stdout, scanner_name=self.name, stderr=result.stderr)
-        return self.parse(payload)
+        if not result.stdout.strip():
+            # No IaC discovered → no findings.
+            return []
+        # Checkov emits one JSON document per framework, back-to-back; decode all.
+        blocks = base.load_json_multi(
+            result.stdout, scanner_name=self.name, stderr=result.stderr
+        )
+        return self.parse(blocks)
 
     @classmethod
     def parse(cls, payload: Any) -> list[Finding]:

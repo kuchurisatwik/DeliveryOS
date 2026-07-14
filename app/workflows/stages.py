@@ -233,7 +233,17 @@ def _render_security_report_section(context: WorkflowContext) -> str:
 
     detection_result = getattr(context, "detection_result", None)
     coverage = tuple(getattr(detection_result, "coverage", ()) or ())
+    raw_findings = tuple(getattr(detection_result, "findings", ()) or ())
     substitutions = tuple(getattr(context, "config_substitutions", None) or ())
+
+    # Number of files the scanners were scoped to (best-effort, for the report).
+    scanned_file_count = None
+    repo_ctx = getattr(context, "retrieved_knowledge", None)
+    changed_feature = getattr(repo_ctx, "changed_feature", None) if repo_ctx else None
+    if changed_feature is not None and getattr(changed_feature, "files", None):
+        scanned_file_count = len(changed_feature.files)
+    elif getattr(context, "changed_files", None):
+        scanned_file_count = len(context.changed_files)
 
     security_summary = None
     if failed_layer:
@@ -254,7 +264,12 @@ def _render_security_report_section(context: WorkflowContext) -> str:
         failed_layer=failed_layer,
     )
     context.security_report = report
-    return render_security_sections(report)
+    return render_security_sections(
+        report,
+        coverage=coverage,
+        raw_findings=raw_findings,
+        scanned_file_count=scanned_file_count,
+    )
 
 class CommitStage(Stage):
     def __init__(self, git_service: GitService):

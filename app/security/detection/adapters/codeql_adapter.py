@@ -12,6 +12,8 @@ the shared scope like every other scanner.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Any, Mapping
 
 from app.security.detection.adapters import base
@@ -27,39 +29,86 @@ class CodeQLAdapter:
     def __init__(
         self,
         *,
-        database: str = "codeql-db",
-        query_suite: str = "python-security-and-quality.qls",
+        database: str | None = None,
+        source_root: str | None = None,
+        query_suite: str = "codeql/python-queries",
+        language: str = "python",
         cwd: str | None = None,
         timeout: int = base.DEFAULT_TIMEOUT,
     ) -> None:
         self._database = database
+        self._source_root = source_root
         self._query_suite = query_suite
+        self._language = language
         self._cwd = cwd
         self._timeout = timeout
 
     def scan(self, scope: ScanScope) -> list[Finding]:
         if not scope.paths:
             return []
-        # `--output -` writes SARIF to stdout so no temp file management is needed.
-        command = [
-            "codeql",
-            "database",
-            "analyze",
-            self._database,
-            self._query_suite,
-            "--format=sarif-latest",
-            "--output=-",
-        ]
-        result = base.run_scanner(
-            command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
+
+        # CodeQL analyses a prebuilt *database*, so we build one from the scanned
+        # source root first (nothing else in the pipeline creates it). The source
+        # root is the cloned workspace; findings are filtered back down to the
+        # ScanScope after analysis so the adapter still honours the shared scope.
+        source_root = self._source_root or self._cwd or "."
+        db_dir = self._database or os.path.join(
+            tempfile.gettempdir(), f"codeql-db-{self._language}"
         )
-        if result.returncode != 0 and not result.stdout.strip():
+
+        # 1. Build the database (Python needs no explicit build command).
+        create = base.run_scanner(
+            [
+                "codeql",
+                "database",
+                "create",
+                db_dir,
+                f"--language={self._language}",
+                f"--source-root={source_root}",
+                "--overwrite",
+                "--quiet",
+            ],
+            scanner_name=self.name,
+            cwd=self._cwd,
+            timeout=self._timeout,
+        )
+        if create.returncode != 0:
             raise ScannerError(
-                self.name, f"exited {result.returncode}: {result.stderr.strip()}"
+                self.name,
+                f"database create exited {create.returncode}: {create.stderr.strip()[:500]}",
             )
-        payload = base.load_json(result.stdout, scanner_name=self.name, stderr=result.stderr)
-        findings = self.parse(payload)
-        return _filter_to_scope(findings, scope)
+
+        # 2. Analyze the database, writing SARIF to a file (NOT stdout): CodeQL
+        # streams its query-evaluation progress to stdout, which collided with a
+        # `--output=-` SARIF stream and broke JSON parsing. `--download` fetches
+        # the query pack from the registry when absent.
+        sarif = base.new_temp_report(".sarif")
+        try:
+            result = base.run_scanner(
+                [
+                    "codeql",
+                    "database",
+                    "analyze",
+                    db_dir,
+                    self._query_suite,
+                    "--format=sarif-latest",
+                    f"--output={sarif}",
+                    "--download",
+                ],
+                scanner_name=self.name,
+                cwd=self._cwd,
+                timeout=self._timeout,
+            )
+            text = base.read_report(sarif)
+            if result.returncode != 0 and not text.strip():
+                raise ScannerError(
+                    self.name, f"exited {result.returncode}: {result.stderr.strip()[:500]}"
+                )
+            payload = base.load_json(text, scanner_name=self.name, stderr=result.stderr)
+            findings = self.parse(payload)
+            return _filter_to_scope(findings, scope)
+        finally:
+            base.cleanup(sarif)
 
     @classmethod
     def parse(cls, payload: Mapping[str, Any]) -> list[Finding]:

@@ -29,10 +29,12 @@ the existing ``AI_REPORT.md`` without disturbing the report's prior content.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Sequence
 
 from app.security.models import (
     ConfigSubstitution,
+    Finding,
     GateStatus,
     IntelligenceResult,
     Merge_Confidence,
@@ -40,10 +42,26 @@ from app.security.models import (
     Pull_Request_Report,
     Quality_Gate,
     ScannerCoverage,
+    Severity,
 )
 
 #: Coverage status string marking a scanner whose run did not complete (3.4, 14.4).
 INCOMPLETE_STATUS = "incomplete"
+
+#: Max length of a scanner failure reason shown in the report. Tool stderr (e.g.
+#: CodeQL's multi-hundred-line evaluation log) is truncated so the report stays
+#: readable instead of dumping raw logs.
+_MAX_REASON_LEN = 200
+
+
+def _short_reason(reason: str | None) -> str:
+    """First line of a scanner failure reason, collapsed and length-capped."""
+    if not reason:
+        return "no reason recorded"
+    first = reason.strip().splitlines()[0].strip()
+    if len(first) > _MAX_REASON_LEN:
+        first = first[: _MAX_REASON_LEN - 1].rstrip() + "…"
+    return first
 
 
 def select_incomplete_scanners(
@@ -158,23 +176,99 @@ def _format_finding(finding: Normalized_Finding) -> str:
     return line
 
 
-def render_security_sections(report: Pull_Request_Report) -> str:
-    """Render an assembled report to a Markdown fragment (pure).
+_SEVERITY_ORDER = (
+    Severity.CRITICAL,
+    Severity.HIGH,
+    Severity.MEDIUM,
+    Severity.LOW,
+    Severity.INFO,
+)
 
-    The returned string is appended to the existing ``AI_REPORT.md`` by the
-    workflow. It never triggers a merge; it only presents the advisory results
-    (Requirement 14.5).
+
+def _severity_breakdown(findings: Sequence[Normalized_Finding]) -> str:
+    """Render a one-line severity histogram, or 'none' when empty."""
+    counts = Counter(f.severity for f in findings)
+    present = [f"{s.name}: {counts[s]}" for s in _SEVERITY_ORDER if counts.get(s)]
+    return ", ".join(present) if present else "none"
+
+
+def _scanner_table(
+    coverage: Sequence[ScannerCoverage], raw_findings: Sequence[Finding]
+) -> list[str]:
+    """Render a per-scanner status table: ran/failed + raw finding counts."""
+    per_scanner: Counter[str] = Counter(f.scanner for f in raw_findings)
+    lines = [
+        "| Scanner | Status | Findings | Detail |\n",
+        "|---|---|---|---|\n",
+    ]
+    for c in coverage:
+        if c.status == INCOMPLETE_STATUS:
+            status = "❌ failed"
+            count = "—"
+            detail = _short_reason(c.reason)
+        else:
+            status = "✅ ran"
+            count = str(per_scanner.get(c.scanner, 0))
+            detail = "completed"
+        lines.append(f"| {c.scanner} | {status} | {count} | {detail} |\n")
+    return lines
+
+
+def render_security_sections(
+    report: Pull_Request_Report,
+    *,
+    coverage: Sequence[ScannerCoverage] = (),
+    raw_findings: Sequence[Finding] = (),
+    scanned_file_count: int | None = None,
+) -> str:
+    """Render an assembled report to an informative Markdown fragment (pure).
+
+    Appended to ``AI_REPORT.md`` by the workflow. Advisory only — never triggers a
+    merge (Requirement 14.5).
+
+    The optional ``coverage`` (full per-scanner list), ``raw_findings`` (the
+    Detection_Layer's aggregated findings) and ``scanned_file_count`` enrich the
+    report with a per-scanner status table, a severity breakdown, and the scanned
+    scope. When omitted, the function degrades to the report's own fields (so the
+    pure Property-21 checks and older callers still work).
     """
     lines: list[str] = []
     lines.append("\n---\n")
     lines.append("## 🔒 Security Pipeline Report\n")
 
     if report.failed_layer:
-        lines.append(f"> ⚠️ **Pipeline halted:** `{report.failed_layer}` layer failed.\n")
+        lines.append(
+            f"> ⚠️ **Pipeline halted:** the `{report.failed_layer}` layer failed; "
+            "results below are partial.\n"
+        )
 
+    lines.append(f"**Commit:** `{report.commit_sha}`\n")
     lines.append(f"**Security Summary:** {report.security_summary}\n")
+    if scanned_file_count is not None:
+        lines.append(f"**Scanned scope:** {scanned_file_count} changed file(s).\n")
     if report.testing_summary:
         lines.append(f"**Testing Summary:** {report.testing_summary}\n")
+
+    # At-a-glance findings by severity across fixed + remaining.
+    all_findings = tuple(report.fixed_findings) + tuple(report.remaining_findings)
+    lines.append(f"\n**Findings by severity:** {_severity_breakdown(all_findings)}\n")
+
+    # Per-scanner status table (only when coverage is provided).
+    lines.append("\n### 🛰️ Scanner Coverage\n")
+    if coverage:
+        completed = sum(1 for c in coverage if c.status != INCOMPLETE_STATUS)
+        lines.append(
+            f"{completed}/{len(coverage)} scanner(s) completed. "
+            "A ❌ scanner ran but its result could not be collected — treat "
+            "its coverage as unknown, not clean.\n\n"
+        )
+        lines.extend(_scanner_table(coverage, raw_findings))
+    elif report.incomplete_scanners:
+        lines.append("The following scanners did not complete (coverage incomplete):\n")
+        for c in report.incomplete_scanners:
+            lines.append(f"- **{c.scanner}** — {_short_reason(c.reason)}\n")
+    else:
+        lines.append("All scanners completed.\n")
 
     # Merge confidence — advisory only (13.3, 14.5).
     mc = report.merge_confidence
@@ -191,6 +285,15 @@ def render_security_sections(report: Pull_Request_Report) -> str:
                 lines.append(f"- `{t.name}`: expected {t.expected}, actual {t.actual}\n")
         else:
             lines.append("- (none recorded)\n")
+        # Clarify the common coverage-only artifact (no SonarQube / security-only).
+        unsat_names = {t.name for t in report.quality_gate.unsatisfied}
+        if unsat_names == {"min_coverage_percent"}:
+            lines.append(
+                "\n> ℹ️ The gate failed only on coverage. In security-only runs "
+                "without SonarQube configured, coverage reports as 0 and this "
+                "threshold cannot pass — this is a configuration artifact, not a "
+                "security finding.\n"
+            )
 
     # Fixed findings (14.2).
     lines.append(f"\n### ✅ Fixed Findings ({len(report.fixed_findings)})\n")
@@ -207,16 +310,6 @@ def render_security_sections(report: Pull_Request_Report) -> str:
             lines.append(_format_finding(f) + "\n")
     else:
         lines.append("None.\n")
-
-    # Incomplete scanners (14.4).
-    lines.append("\n### 🛰️ Scanner Coverage\n")
-    if report.incomplete_scanners:
-        lines.append("The following scanners did not complete (coverage incomplete):\n")
-        for c in report.incomplete_scanners:
-            reason = f" — {c.reason}" if c.reason else ""
-            lines.append(f"- **{c.scanner}**{reason}\n")
-    else:
-        lines.append("All scanners completed.\n")
 
     # Config substitutions (15.2).
     if report.config_substitutions:
