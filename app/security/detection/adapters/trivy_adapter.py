@@ -98,6 +98,7 @@ class TrivyAdapter:
                     severity=severity,
                     message=vuln.get("Title") or vuln.get("Description") or "",
                     raw=dict(vuln),
+                    category="dependency",
                 )
             )
         return findings
@@ -121,6 +122,7 @@ class TrivyAdapter:
                     severity=severity,
                     message=misc.get("Title") or misc.get("Message") or "",
                     raw=dict(misc),
+                    category="iac",
                 )
             )
         return findings
@@ -143,6 +145,7 @@ class TrivyAdapter:
                     severity=severity,
                     message=secret.get("Title") or "Leaked secret detected",
                     raw=dict(secret),
+                    category="secret",
                 )
             )
         return findings

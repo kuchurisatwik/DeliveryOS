@@ -318,6 +318,9 @@ def render_security_sections(
     raw_findings: Sequence[Finding] = (),
     scanned_file_count: int | None = None,
     remediation_guide: Sequence[Any] = (),
+    repo_slug: str | None = None,
+    branch: str | None = None,
+    commit_author: str | None = None,
 ) -> str:
     """Render an assembled report to an informative Markdown fragment (pure).
 
@@ -340,7 +343,20 @@ def render_security_sections(
             "results below are partial.\n"
         )
 
-    lines.append(f"**Commit:** `{report.commit_sha}`\n")
+    # Commit traceability. The PR link cannot be embedded here because the report
+    # is committed BEFORE the pull request is created, so we surface a clickable
+    # commit link (and branch/author when known) which points the reviewer at the
+    # exact change under review.
+    if repo_slug:
+        commit_url = f"https://github.com/{repo_slug}/commit/{report.commit_sha}"
+        lines.append(f"**Commit:** [`{report.commit_sha[:10]}`]({commit_url})\n")
+        lines.append(f"**Repository:** `{repo_slug}`\n")
+    else:
+        lines.append(f"**Commit:** `{report.commit_sha}`\n")
+    if branch:
+        lines.append(f"**Branch under review:** `{branch}`\n")
+    if commit_author:
+        lines.append(f"**Author:** {commit_author}\n")
     lines.append(f"**Security Summary:** {report.security_summary}\n")
     if scanned_file_count is not None:
         lines.append(f"**Scanned scope:** {scanned_file_count} changed file(s).\n")

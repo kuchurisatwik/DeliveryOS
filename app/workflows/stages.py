@@ -270,6 +270,8 @@ def _render_security_report_section(context: WorkflowContext) -> str:
         raw_findings=raw_findings,
         scanned_file_count=scanned_file_count,
         remediation_guide=getattr(context, "security_remediation_guide", None) or (),
+        repo_slug=getattr(context, "repository", None),
+        branch=getattr(context, "branch", None),
     )
 
 class CommitStage(Stage):

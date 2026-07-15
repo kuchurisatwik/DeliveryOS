@@ -168,9 +168,16 @@ def normalize(finding: Finding) -> Normalized_Finding:
         message = raw_message
 
     # --- derived fields ---------------------------------------------------
-    category = _SCANNER_CATEGORY.get(
-        scanner.lower() if isinstance(scanner, str) else "", DEFAULT_CATEGORY
-    )
+    # Prefer a finding-level category hint (set by adapters whose output spans
+    # multiple categories, e.g. Trivy dependency/iac/secret); otherwise fall back
+    # to the scanner-wide default map.
+    raw_category = getattr(finding, "category", None)
+    if isinstance(raw_category, str) and raw_category.strip():
+        category = raw_category.strip()
+    else:
+        category = _SCANNER_CATEGORY.get(
+            scanner.lower() if isinstance(scanner, str) else "", DEFAULT_CATEGORY
+        )
     finding_id = _derive_finding_id(rule_identity, location)
 
     return Normalized_Finding(

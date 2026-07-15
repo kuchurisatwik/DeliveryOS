@@ -356,3 +356,44 @@ def test_load_json_on_empty_output_raises_scanner_error():
     # empty output means the tool errored before producing one.
     with pytest.raises(ScannerError):
         base.load_json("   ", scanner_name="semgrep")
+
+
+# --------------------------------------------------------------------------- #
+# Trivy category tagging (dependency / iac / secret) — normalization respects it
+# --------------------------------------------------------------------------- #
+
+from app.security.intelligence.normalize import normalize as _normalize  # noqa: E402
+
+
+def test_trivy_tags_categories_per_finding_type():
+    """Trivy vuln→dependency, misconfig→iac, secret→secret (not all 'dependency')."""
+    payload = {
+        "Results": [
+            {
+                "Target": "requirements.txt",
+                "Vulnerabilities": [
+                    {"VulnerabilityID": "CVE-1", "Severity": "HIGH", "Title": "vuln"}
+                ],
+                "Misconfigurations": [
+                    {"ID": "AWS-1", "Severity": "HIGH", "Title": "open sg",
+                     "CauseMetadata": {"StartLine": 1, "EndLine": 2}}
+                ],
+                "Secrets": [
+                    {"RuleID": "aws-access-key-id", "Severity": "CRITICAL",
+                     "Title": "leaked key", "StartLine": 7, "EndLine": 7}
+                ],
+            }
+        ]
+    }
+    findings = TrivyAdapter.parse(payload)
+    cats = {f.rule_id: f.category for f in findings}
+    assert cats["CVE-1"] == "dependency"
+    assert cats["AWS-1"] == "iac"
+    assert cats["aws-access-key-id"] == "secret"
+
+    # Normalization must carry the finding-level category through (not the
+    # scanner-wide "dependency" default).
+    normalized = {nf.rule_identity: nf.category for nf in (_normalize(f) for f in findings)}
+    assert normalized["aws-access-key-id"] == "secret"
+    assert normalized["aws-1"] == "iac"
+    assert normalized["cve-1"] == "dependency"

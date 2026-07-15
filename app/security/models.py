@@ -76,6 +76,11 @@ class Finding:
     severity: Severity
     message: str
     raw: Mapping[str, object]
+    #: Optional finding-level category hint set by adapters whose output spans
+    #: multiple categories (e.g. Trivy emits dependency/iac/secret findings). When
+    #: set, normalization uses it instead of the scanner-wide default so a Trivy
+    #: secret is categorized "secret", a Trivy misconfig "iac", etc.
+    category: str | None = None
 
 
 # ---------------------------------------------------------------------------
