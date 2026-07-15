@@ -15,7 +15,15 @@ class LLMService:
     """
     
     FIXED_MODEL = "openai/gpt-4o-mini"
-    
+
+    #: Process-wide circuit breaker. Trips on billing/auth errors (HTTP 402/401)
+    #: that cannot self-heal without operator action (top up credits / fix key).
+    #: Once tripped, every subsequent LLM call in this process fast-fails instead
+    #: of making a doomed HTTP round-trip — this keeps a degraded security run
+    #: (hundreds of findings) from firing hundreds of failing requests. Cleared
+    #: only on process restart, which is also when new credits/keys take effect.
+    _hard_failure: str | None = None
+
     def __init__(self):
         self.openrouter_key = settings.OPENROUTER_API_KEY
         
@@ -75,6 +83,15 @@ class LLMService:
         }
         
         model = self.FIXED_MODEL
+
+        # Fast-fail if the breaker is already open (prior unrecoverable billing/
+        # auth error this process). No network call is made.
+        if LLMService._hard_failure is not None:
+            raise ValueError(
+                f"LLM call skipped for {model}; circuit open after a prior "
+                f"unrecoverable error: {LLMService._hard_failure}"
+            )
+
         logger.info(f"Calling OpenRouter LLM ({model}) with structured output requirement...")
         
         payload = {
@@ -105,7 +122,24 @@ class LLMService:
                 
             json_data = json.loads(content.strip())
             return schema(**json_data)
-            
+
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            # 402 Payment Required / 401 Unauthorized won't resolve without an
+            # operator changing credits or the API key, so trip the breaker and
+            # let every remaining call this process fast-fail.
+            if code in (401, 402):
+                LLMService._hard_failure = (
+                    f"HTTP {code} from OpenRouter (billing/auth); "
+                    "top up credits or fix OPENROUTER_API_KEY, then restart."
+                )
+                logger.error(
+                    "OpenRouter returned %s (billing/auth). Opening LLM circuit: "
+                    "further calls this process fast-fail until restart.",
+                    code,
+                )
+            logger.error(f"Model {model} failed via OpenRouter. Error: {e}")
+            raise ValueError(f"LLM call failed with {model}: {e}")
         except Exception as e:
             logger.error(f"Model {model} failed via OpenRouter. Error: {e}")
             raise ValueError(f"LLM call failed with {model}: {e}")

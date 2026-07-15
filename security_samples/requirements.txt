@@ -1,0 +1,9 @@
+# INTENTIONALLY INSECURE — Trivy dependency test fixture.
+# These are OLD, known-vulnerable pinned versions so Trivy's dependency scanner
+# (vuln) reports CVEs. This file is NOT installed by the app (the real deps live in
+# the repo-root requirements.txt). Do not pip install this file.
+requests==2.19.1
+PyYAML==5.1
+Django==2.2.0
+Flask==0.12.2
+urllib3==1.24.1

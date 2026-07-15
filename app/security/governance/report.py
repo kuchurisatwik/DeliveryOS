@@ -53,6 +53,11 @@ INCOMPLETE_STATUS = "incomplete"
 #: readable instead of dumping raw logs.
 _MAX_REASON_LEN = 200
 
+#: Max number of individual findings listed per section. Findings arrive
+#: risk-ordered from Layer 3, so the highest-risk ones are shown; the remainder
+#: are summarized by a count line to keep the report readable on large commits.
+_MAX_LISTED_FINDINGS = 50
+
 
 def _short_reason(reason: str | None) -> str:
     """First line of a scanner failure reason, collapsed and length-capped."""
@@ -214,6 +219,29 @@ def _scanner_table(
     return lines
 
 
+def _append_finding_list(
+    lines: list[str], findings: Sequence[Normalized_Finding]
+) -> None:
+    """Append a bulleted finding list, capped at ``_MAX_LISTED_FINDINGS`` (pure).
+
+    Findings arrive risk-ordered, so the highest-risk ones are listed; when the
+    list is longer than the cap, a trailing line summarizes how many were omitted
+    so the report stays readable on large commits without hiding the true count.
+    """
+    if not findings:
+        lines.append("None.\n")
+        return
+    for f in findings[:_MAX_LISTED_FINDINGS]:
+        lines.append(_format_finding(f) + "\n")
+    omitted = len(findings) - _MAX_LISTED_FINDINGS
+    if omitted > 0:
+        lines.append(
+            f"- _…and {omitted} more (showing the {_MAX_LISTED_FINDINGS} "
+            "highest-risk findings; see the severity breakdown above for the "
+            "full distribution)._\n"
+        )
+
+
 def render_security_sections(
     report: Pull_Request_Report,
     *,
@@ -297,19 +325,11 @@ def render_security_sections(
 
     # Fixed findings (14.2).
     lines.append(f"\n### ✅ Fixed Findings ({len(report.fixed_findings)})\n")
-    if report.fixed_findings:
-        for f in report.fixed_findings:
-            lines.append(_format_finding(f) + "\n")
-    else:
-        lines.append("None.\n")
+    _append_finding_list(lines, report.fixed_findings)
 
     # Remaining findings (14.2).
     lines.append(f"\n### ❗ Remaining Findings ({len(report.remaining_findings)})\n")
-    if report.remaining_findings:
-        for f in report.remaining_findings:
-            lines.append(_format_finding(f) + "\n")
-    else:
-        lines.append("None.\n")
+    _append_finding_list(lines, report.remaining_findings)
 
     # Config substitutions (15.2).
     if report.config_substitutions:

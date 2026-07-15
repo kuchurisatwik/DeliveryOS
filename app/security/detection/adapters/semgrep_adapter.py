@@ -32,21 +32,35 @@ class SemgrepAdapter:
 
     name = "semgrep"
 
+    #: Default rulesets. ``p/security-audit`` is Semgrep's broad security ruleset
+    #: (injection, auth, crypto, deserialization, SSRF, path traversal, ...);
+    #: ``p/python`` adds the Python-focused pack. Both are passed as separate
+    #: ``--config`` flags so their rules are unioned.
+    DEFAULT_CONFIGS: tuple[str, ...] = ("p/security-audit", "p/python")
+
     def __init__(
         self,
         *,
-        config: str = "p/python",
+        config: str | tuple[str, ...] | list[str] | None = None,
         cwd: str | None = None,
         timeout: int = base.DEFAULT_TIMEOUT,
     ) -> None:
-        self._config = config
+        if config is None:
+            self._configs: tuple[str, ...] = self.DEFAULT_CONFIGS
+        elif isinstance(config, str):
+            self._configs = (config,)
+        else:
+            self._configs = tuple(config)
         self._cwd = cwd
         self._timeout = timeout
 
     def scan(self, scope: ScanScope) -> list[Finding]:
         if not scope.paths:
             return []
-        command = ["semgrep", "--config", self._config, "--json", "--quiet", *scope.paths]
+        config_args: list[str] = []
+        for cfg in self._configs:
+            config_args.extend(["--config", cfg])
+        command = ["semgrep", *config_args, "--json", "--quiet", *scope.paths]
         result = base.run_scanner(
             command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
         )
