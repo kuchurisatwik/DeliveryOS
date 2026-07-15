@@ -57,3 +57,5 @@ def insecure_tempfile():
     with open(path, "w") as fh:
         fh.write(ADMIN_PASSWORD)
     return path
+
+# Trivial change to force a non-empty diff for the next pipeline run.
