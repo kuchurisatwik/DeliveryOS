@@ -269,6 +269,7 @@ def _render_security_report_section(context: WorkflowContext) -> str:
         coverage=coverage,
         raw_findings=raw_findings,
         scanned_file_count=scanned_file_count,
+        remediation_guide=getattr(context, "security_remediation_guide", None) or (),
     )
 
 class CommitStage(Stage):

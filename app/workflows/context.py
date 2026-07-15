@@ -86,6 +86,7 @@ class WorkflowContext(BaseModel):
     config_substitutions: List[Any] = Field(default_factory=list, description="Repo_Config substitutions applied when malformed values were replaced by defaults (15.2)")
     resolved_config: Optional[Any] = Field(None, description="Immutable Repo_Config ResolvedConfig (thresholds/scanner rules/pipeline settings) resolved before Detection runs (1.5)")
     security_report: Optional[Any] = Field(None, description="Assembled Layer 4 Pull_Request_Report for the security pipeline")
+    security_remediation_guide: List[Any] = Field(default_factory=list, description="Batch-triage remediation guide: list of (RuleGroup, RuleAnalysis) for the dev-team report section")
     failed_layer: Optional[str] = Field(None, description="Name of the security layer that terminated with an unrecoverable error; set by layer-failure containment so the report records which layer failed (1.4)")
 
     pr_url: Optional[str] = Field(None, description="URL of the created pull request")

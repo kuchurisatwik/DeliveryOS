@@ -53,6 +53,7 @@ from app.security.intelligence.scoring import order_by_risk, score_findings
 from app.security.intelligence.triage import attach_triage
 from app.security.intelligence.verify import Verifier
 from app.security.models import (
+    AITriage,
     FindingStatus,
     IntelligenceResult,
     Normalized_Finding,
@@ -113,10 +114,111 @@ class IntelligenceStage(Stage):
         repo_context: Any = context.retrieved_knowledge
         scope = derive_scan_scope(context)
 
+        from app.config.settings import settings
+
+        mode = (settings.SECURITY_TRIAGE_MODE or "batch").strip().lower()
         logger.info(
-            "IntelligenceStage: processing %d raw finding(s)", len(raw_findings)
+            "IntelligenceStage: processing %d raw finding(s) in '%s' mode",
+            len(raw_findings),
+            mode,
         )
-        context.intelligence_result = self._process(raw_findings, repo_context, scope)
+        if mode == "batch":
+            context.intelligence_result = self._process_batch(
+                raw_findings, repo_context, context
+            )
+        else:  # "per_finding" (and any legacy value) → original per-finding loop
+            context.intelligence_result = self._process(raw_findings, repo_context, scope)
+
+    # ------------------------------------------------------------------ #
+    # Batch mode (production): deterministic grouping + 1–N batched LLM calls
+    # ------------------------------------------------------------------ #
+
+    def _process_batch(
+        self, raw_findings: list[Any], repo_context: Any, context: WorkflowContext
+    ) -> IntelligenceResult:
+        """Group findings by rule, severity-gate, then analyze in 1–N LLM calls.
+
+        Produces the same normalized/deduped/scored finding set as per-finding
+        mode, but attaches AI analysis at the *rule* level (one call covers many
+        findings). Escalated (HIGH/CRITICAL) rule-groups get an AI remediation;
+        the rest are reported deterministically. Nothing is repaired or verified
+        in this mode — every finding is returned as ``remaining`` with its triage
+        attached, and a per-rule remediation guide is stored on the context for
+        the report.
+        """
+        from dataclasses import replace as _replace
+
+        from app.config.settings import settings
+        from app.security.intelligence.batch_triage import (
+            LLMBatchTriage,
+            group_findings,
+            parse_severities,
+            select_for_ai,
+        )
+
+        normalized = [normalize(f) for f in raw_findings]
+        deduped = deduplicate(normalized)
+        enriched = enrich(deduped, repo_context)
+        ordered = list(order_by_risk(score_findings(tuple(enriched))))
+
+        groups = group_findings(ordered)
+        severities = parse_severities(settings.SECURITY_AI_SEVERITIES)
+        escalate, rest = select_for_ai(groups, severities)
+
+        analyzer = LLMBatchTriage(
+            self._batch_llm_service(),
+            batch_size=settings.SECURITY_AI_BATCH_SIZE,
+            max_calls=settings.SECURITY_AI_MAX_CALLS,
+        )
+        analysis = analyzer.analyze(escalate, repo_context)
+
+        logger.info(
+            "IntelligenceStage(batch): %d finding(s) → %d rule-group(s); "
+            "%d escalated to AI, %d deterministic-only",
+            len(ordered),
+            len(groups),
+            len(escalate),
+            len(rest),
+        )
+
+        # Attach the rule-level analysis to each finding as its triage.
+        processed: list[Normalized_Finding] = []
+        for f in ordered:
+            ra = analysis.get(f.rule_identity)
+            if ra is not None:
+                triage = AITriage(
+                    explanation=ra.explanation,
+                    priority=ra.priority,
+                    suggested_fix=ra.remediation,
+                    likely_false_positive=ra.likely_false_positive,
+                )
+                processed.append(
+                    _replace(
+                        f,
+                        triage=triage,
+                        likely_false_positive=ra.likely_false_positive,
+                        status=FindingStatus.UNRESOLVED,
+                        unresolved_reason="Advisory — see remediation guide.",
+                    )
+                )
+            else:
+                processed.append(f)
+
+        # Store the dev-team remediation guide (escalated groups + their analysis).
+        context.security_remediation_guide = [
+            (g, analysis.get(g.rule_identity)) for g in escalate
+        ]
+
+        return IntelligenceResult(fixed=(), remaining=tuple(processed))
+
+    def _batch_llm_service(self):
+        """Reuse the triage adapter's LLMService when available, else a default."""
+        svc = getattr(self._triage_adapter, "llm_service", None)
+        if svc is not None:
+            return svc
+        from app.services.llm_service import LLMService
+
+        return LLMService()
 
     # ------------------------------------------------------------------ #
     # Ordered flow (design IntelligenceLayer.process)

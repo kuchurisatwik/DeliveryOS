@@ -37,6 +37,28 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Security pipeline — AI triage strategy
+    SECURITY_TRIAGE_MODE: str = Field(
+        default="batch",
+        description=(
+            "How the Intelligence layer uses the LLM: 'batch' (default, "
+            "production) groups findings by rule and severity-gates them, then "
+            "makes 1-5 batched LLM calls to produce a remediation guide for the "
+            "HIGH/CRITICAL rule-groups; 'per_finding' makes one triage (+repair) "
+            "call per finding (accurate but ~2N calls, dev/testing only); 'off' "
+            "makes zero LLM calls and produces a deterministic-only report."
+        ),
+    )
+    #: Severities the batch triage sends to the LLM. Lower-severity findings are
+    #: listed deterministically in the report without an AI call.
+    SECURITY_AI_SEVERITIES: str = Field(
+        default="HIGH,CRITICAL",
+        description="Comma-separated severities escalated to AI in batch mode.",
+    )
+    #: Max finding-groups per batched LLM call, and the hard cap on calls/run.
+    SECURITY_AI_BATCH_SIZE: int = Field(default=30, description="Rule-groups per LLM call.")
+    SECURITY_AI_MAX_CALLS: int = Field(default=5, description="Hard cap on LLM calls per run.")
+
     # Security pipeline — deterministic patch verification
     SECURITY_VERIFY_PATCHES: bool = Field(
         default=False,

@@ -297,6 +297,9 @@ def test_end_to_end_security_pipeline_produces_report_and_never_merges(
     from app.config.settings import settings as _settings
 
     monkeypatch.setattr(_settings, "SECURITY_VERIFY_PATCHES", True)
+    # This test exercises the per-finding triage→repair→verify loop; batch mode
+    # is the runtime default, so select per-finding explicitly here.
+    monkeypatch.setattr(_settings, "SECURITY_TRIAGE_MODE", "per_finding")
 
     metrics = SonarMetrics(
         coverage_percent=95.0,

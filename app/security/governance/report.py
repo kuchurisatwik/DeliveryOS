@@ -275,12 +275,49 @@ def _append_finding_list(
         )
 
 
+def _render_remediation_guide(guide: Sequence[Any]) -> list[str]:
+    """Render the batch-triage remediation guide grouped by rule (pure).
+
+    ``guide`` is a sequence of ``(RuleGroup, RuleAnalysis | None)`` tuples for the
+    HIGH/CRITICAL rules escalated to the AI. Each rule appears once with its
+    occurrence count, affected locations, AI explanation, and remediation — a
+    concise, actionable digest for the dev team rather than a per-line dump.
+    """
+    lines: list[str] = ["\n### 🛠️ Remediation Guide — Key High/Critical Findings\n"]
+    if not guide:
+        lines.append("No high/critical findings requiring remediation.\n")
+        return lines
+    lines.append(
+        f"The {len(guide)} highest-severity rule(s) below account for the key risk "
+        "in this change. Each fix applies to all listed occurrences.\n"
+    )
+    for group, analysis in guide:
+        locs = ", ".join(group.locations) if group.locations else "n/a"
+        more = f" (+{group.count - len(group.locations)} more)" if group.count > len(group.locations) else ""
+        prio = analysis.priority.name if analysis is not None else "—"
+        lines.append(
+            f"\n#### {group.severity.name} · {group.rule_identity} "
+            f"— {group.count} occurrence(s) · {prio}\n"
+        )
+        lines.append(f"- **Scanners:** {', '.join(group.scanners) or 'unknown'}\n")
+        lines.append(f"- **Where:** `{locs}`{more}\n")
+        if analysis is not None:
+            if analysis.explanation:
+                lines.append(f"- **Why it matters:** {analysis.explanation.strip()}\n")
+            if analysis.remediation:
+                lines.append(f"- **How to fix:** {analysis.remediation.strip()}\n")
+            if analysis.likely_false_positive:
+                lines.append("- ⚠️ _AI flagged this as a likely false positive — confirm before acting._\n")
+    return lines
+
+
 def render_security_sections(
     report: Pull_Request_Report,
     *,
     coverage: Sequence[ScannerCoverage] = (),
     raw_findings: Sequence[Finding] = (),
     scanned_file_count: int | None = None,
+    remediation_guide: Sequence[Any] = (),
 ) -> str:
     """Render an assembled report to an informative Markdown fragment (pure).
 
@@ -313,6 +350,10 @@ def render_security_sections(
     # At-a-glance findings by severity across fixed + remaining.
     all_findings = tuple(report.fixed_findings) + tuple(report.remaining_findings)
     lines.append(f"\n**Findings by severity:** {_severity_breakdown(all_findings)}\n")
+
+    # Dev-team remediation guide (batch-triage mode): the headline section.
+    if remediation_guide:
+        lines.extend(_render_remediation_guide(remediation_guide))
 
     # Per-scanner status table (only when coverage is provided).
     lines.append("\n### 🛰️ Scanner Coverage\n")
