@@ -285,8 +285,19 @@ def _build_stages(sonar_metrics: SonarMetrics):
 # --------------------------------------------------------------------------- #
 
 
-def test_end_to_end_security_pipeline_produces_report_and_never_merges(tmp_path):
-    """Full Layer 1→4 run through the orchestrator; report attached, no merge."""
+def test_end_to_end_security_pipeline_produces_report_and_never_merges(
+    tmp_path, monkeypatch
+):
+    """Full Layer 1→4 run through the orchestrator; report attached, no merge.
+
+    Exercises the closed scanner-verified repair loop with in-memory fakes, so
+    ``SECURITY_VERIFY_PATCHES`` is explicitly enabled for this test. The
+    runtime default is advisory mode (``False``).
+    """
+    from app.config.settings import settings as _settings
+
+    monkeypatch.setattr(_settings, "SECURITY_VERIFY_PATCHES", True)
+
     metrics = SonarMetrics(
         coverage_percent=95.0,
         code_smells=1,

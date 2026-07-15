@@ -1,5 +1,14 @@
 """Layer 3 Intelligence — the full-flow assembly Stage.
 
+Verification is optional (opt-in via ``SECURITY_VERIFY_PATCHES``). When disabled
+(the default), AI-generated patches are attached to findings as **advisory
+suggestions** — no scanner re-run, no scanner-confirmed ``fixed`` status. The
+finding retains status ``UNRESOLVED`` with a reason marking it as an unverified
+AI suggestion so a human reviewer can apply it. This avoids ~40s of scanner
+re-run per finding while patch-application-to-disk is not yet implemented; the
+scanner-verified path stays available via the flag for the future closed-loop
+mode.
+
 :class:`IntelligenceStage` is the net-new Layer 3 workflow stage (subclassing the
 existing :class:`app.workflows.stages.Stage`). It wires the deterministic core and
 the AI/verification boundaries into the single ordered flow the design's
@@ -65,6 +74,11 @@ FALSE_POSITIVE_REASON = "Labeled likely false positive; retained for human revie
 UNRESOLVED_REASON = "Verification did not confirm the finding was resolved."
 #: Recorded reason when the patch introduced a new finding (Requirement 11.4).
 INTRODUCED_REASON = "Patch rejected: it introduced a finding absent from the baseline."
+#: Recorded reason when verification is disabled and the AI patch is attached
+#: as an advisory suggestion for the human reviewer.
+UNVERIFIED_PATCH_REASON = (
+    "AI suggested a fix — advisory only, not scanner-verified. Human review required."
+)
 
 
 class IntelligenceStage(Stage):
@@ -201,7 +215,19 @@ class IntelligenceStage(Stage):
 
         finding = replace(finding, candidate_patch=patch)
 
-        # Requirement 11 — deterministic re-verification.
+        # Advisory mode (SECURITY_VERIFY_PATCHES=false): attach the AI patch as a
+        # suggestion, skip the ~40s-per-finding scanner re-run. Finding stays
+        # UNRESOLVED so a human reviewer applies it.
+        from app.config.settings import settings
+
+        if not settings.SECURITY_VERIFY_PATCHES:
+            return replace(
+                finding,
+                status=FindingStatus.UNRESOLVED,
+                unresolved_reason=UNVERIFIED_PATCH_REASON,
+            )
+
+        # Requirement 11 — deterministic re-verification (opt-in).
         outcome = self._verifier.verify(patch, baseline, scope)
         if outcome.accepted:
             return replace(finding, status=FindingStatus.FIXED, unresolved_reason=None)

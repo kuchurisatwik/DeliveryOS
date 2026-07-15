@@ -37,6 +37,19 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Security pipeline — deterministic patch verification
+    SECURITY_VERIFY_PATCHES: bool = Field(
+        default=False,
+        description=(
+            "When True, the Intelligence layer re-runs every scanner after each "
+            "AI-generated patch to deterministically verify the fix (Requirement 11). "
+            "When False (default), AI patches are attached to the report as advisory "
+            "suggestions only — no re-scan, no scanner-confirmed 'fixed' status. This "
+            "avoids the ~40s-per-finding re-scan cost until patch-application-to-disk "
+            "is implemented; see the architecture doc for the tradeoff."
+        ),
+    )
+
     # Workspace settings
     WORKSPACE_DIR: str = Field(
         default=os.path.join(os.getcwd(), "workspace"), 

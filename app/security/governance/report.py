@@ -167,18 +167,51 @@ def assemble_pull_request_report(
 
 
 def _format_finding(finding: Normalized_Finding) -> str:
-    """Render a single finding as a Markdown bullet line (pure)."""
+    """Render a single finding as an informative Markdown block (pure).
+
+    Renders the rule identity, severity/category, location, and scanner
+    provenance on a headline line, then — when present — the AI triage
+    (priority + explanation + suggested-fix approach) and the AI-generated
+    patch diff as a fenced code block. This is what makes advisory mode
+    (``SECURITY_VERIFY_PATCHES=false``) useful for the human reviewer:
+    every remaining finding carries an AI explanation and a concrete diff
+    the reviewer can apply.
+    """
     loc = finding.location
     where = f"{loc.path}:{loc.start_line}"
     scanners = ", ".join(sorted(finding.scanners)) if finding.scanners else "unknown"
-    line = (
+    parts: list[str] = [
         f"- **{finding.rule_identity}** "
         f"({finding.severity.name}, {finding.category}) at `{where}` "
         f"— scanners: {scanners}"
-    )
+    ]
     if finding.unresolved_reason:
-        line += f" — {finding.unresolved_reason}"
-    return line
+        parts[0] += f" — {finding.unresolved_reason}"
+
+    # AI triage (priority + explanation + suggested-fix approach).
+    triage = finding.triage
+    if triage is not None:
+        fp = " · likely false positive" if triage.likely_false_positive else ""
+        parts.append(f"  - **AI triage:** {triage.priority.name}{fp}")
+        if triage.explanation:
+            parts.append(f"  - _{triage.explanation.strip()}_")
+        if triage.suggested_fix:
+            parts.append(f"  - **Suggested fix approach:** {triage.suggested_fix.strip()}")
+
+    # AI candidate patch (unified diff) — the concrete change the reviewer can apply.
+    patch = finding.candidate_patch
+    if patch is not None and patch.diff.strip():
+        diff_body = patch.diff.strip()
+        # Cap absurdly long diffs so the report stays readable.
+        if len(diff_body) > 4000:
+            diff_body = diff_body[:4000].rstrip() + "\n… (truncated)"
+        parts.append("  - **Suggested change:**")
+        parts.append("    ```diff")
+        for line in diff_body.splitlines():
+            parts.append(f"    {line}")
+        parts.append("    ```")
+
+    return "\n".join(parts)
 
 
 _SEVERITY_ORDER = (
