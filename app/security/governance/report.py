@@ -289,7 +289,8 @@ def _render_remediation_guide(guide: Sequence[Any]) -> list[str]:
         return lines
     lines.append(
         f"The {len(guide)} highest-severity rule(s) below account for the key risk "
-        "in this change. Each fix applies to all listed occurrences.\n"
+        "in this change. Each fix applies to all listed occurrences. CRITICAL rules "
+        "include a concrete patch; HIGH rules include an illustrative before/after.\n"
     )
     for group, analysis in guide:
         locs = ", ".join(group.locations) if group.locations else "n/a"
@@ -301,13 +302,58 @@ def _render_remediation_guide(guide: Sequence[Any]) -> list[str]:
         )
         lines.append(f"- **Scanners:** {', '.join(group.scanners) or 'unknown'}\n")
         lines.append(f"- **Where:** `{locs}`{more}\n")
-        if analysis is not None:
-            if analysis.explanation:
-                lines.append(f"- **Why it matters:** {analysis.explanation.strip()}\n")
-            if analysis.remediation:
-                lines.append(f"- **How to fix:** {analysis.remediation.strip()}\n")
-            if analysis.likely_false_positive:
-                lines.append("- ⚠️ _AI flagged this as a likely false positive — confirm before acting._\n")
+        if analysis is None:
+            continue
+        if analysis.explanation:
+            lines.append(f"- **Why it matters:** {analysis.explanation.strip()}\n")
+        if analysis.remediation:
+            lines.append(f"- **How to fix:** {analysis.remediation.strip()}\n")
+        if analysis.likely_false_positive:
+            lines.append("- ⚠️ _AI flagged this as a likely false positive — confirm before acting._\n")
+
+        # CRITICAL: a concrete unified diff from the dedicated repair call.
+        diff = getattr(analysis, "diff", "") or ""
+        if diff.strip():
+            lines.append("- **Suggested patch:**\n")
+            lines.append("  ```diff\n")
+            for ln in diff.strip().splitlines()[:60]:
+                lines.append(f"  {ln}\n")
+            lines.append("  ```\n")
+        else:
+            # HIGH: illustrative before/after snippets from the batch call.
+            before = getattr(analysis, "before_snippet", "") or ""
+            after = getattr(analysis, "after_snippet", "") or ""
+            if before.strip() or after.strip():
+                lines.append("- **Example fix (illustrative):**\n")
+                lines.append("  ```diff\n")
+                for ln in before.strip().splitlines():
+                    lines.append(f"  - {ln}\n")
+                for ln in after.strip().splitlines():
+                    lines.append(f"  + {ln}\n")
+                lines.append("  ```\n")
+    return lines
+
+
+def _render_deterministic_guide(guide: Sequence[Any]) -> list[str]:
+    """Render canned (no-AI) remediation for MEDIUM/LOW rule-groups (pure)."""
+    entries = [(g, a) for g, a in guide if a is not None]
+    if not entries:
+        return []
+    lines: list[str] = ["\n### 📋 Other Findings — Standard Remediation (no AI)\n"]
+    lines.append(
+        f"{len(entries)} lower-severity rule(s), each with standard guidance "
+        "(deterministic, no LLM call):\n\n"
+    )
+    lines.append("| Severity | Rule | Count | How to fix |\n")
+    lines.append("|---|---|---|---|\n")
+    for group, analysis in entries[:_MAX_LISTED_FINDINGS]:
+        fix = analysis.remediation.replace("|", "\\|").replace("\n", " ")
+        lines.append(
+            f"| {group.severity.name} | `{group.rule_identity}` | {group.count} | {fix} |\n"
+        )
+    omitted = len(entries) - _MAX_LISTED_FINDINGS
+    if omitted > 0:
+        lines.append(f"\n_…and {omitted} more lower-severity rule(s)._\n")
     return lines
 
 
@@ -318,6 +364,7 @@ def render_security_sections(
     raw_findings: Sequence[Finding] = (),
     scanned_file_count: int | None = None,
     remediation_guide: Sequence[Any] = (),
+    deterministic_guide: Sequence[Any] = (),
     repo_slug: str | None = None,
     branch: str | None = None,
     commit_author: str | None = None,
@@ -370,6 +417,8 @@ def render_security_sections(
     # Dev-team remediation guide (batch-triage mode): the headline section.
     if remediation_guide:
         lines.extend(_render_remediation_guide(remediation_guide))
+    if deterministic_guide:
+        lines.extend(_render_deterministic_guide(deterministic_guide))
 
     # Per-scanner status table (only when coverage is provided).
     lines.append("\n### 🛰️ Scanner Coverage\n")

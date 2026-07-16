@@ -55,9 +55,18 @@ class Settings(BaseSettings):
         default="HIGH,CRITICAL",
         description="Comma-separated severities escalated to AI in batch mode.",
     )
-    #: Max finding-groups per batched LLM call, and the hard cap on calls/run.
-    SECURITY_AI_BATCH_SIZE: int = Field(default=30, description="Rule-groups per LLM call.")
-    SECURITY_AI_MAX_CALLS: int = Field(default=5, description="Hard cap on LLM calls per run.")
+    #: Max finding-groups per batched LLM call, and the hard cap on batch calls/run.
+    SECURITY_AI_BATCH_SIZE: int = Field(default=5, description="Rule-groups per batched LLM call (<=5 keeps every item in the model's high-attention window).")
+    SECURITY_AI_MAX_CALLS: int = Field(default=6, description="Hard cap on batched triage calls per run.")
+    #: Cap on dedicated per-rule CRITICAL repair calls (each yields a real +/- diff).
+    SECURITY_AI_MAX_REPAIR_CALLS: int = Field(
+        default=5,
+        description=(
+            "Max dedicated LLM repair calls per run — one per CRITICAL rule-group, "
+            "each producing a concrete unified diff. Beyond this cap, CRITICAL rules "
+            "fall back to batch text + illustrative snippets like HIGH."
+        ),
+    )
 
     # Security pipeline — deterministic patch verification
     SECURITY_VERIFY_PATCHES: bool = Field(

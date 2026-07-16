@@ -66,6 +66,14 @@ class RuleAnalysis:
     priority: Priority
     remediation: str
     likely_false_positive: bool
+    #: Illustrative before/after code for HIGH rule-groups (from the batch call).
+    before_snippet: str = ""
+    after_snippet: str = ""
+    #: A concrete unified diff for CRITICAL rule-groups (from a dedicated repair
+    #: call); empty for non-critical or when repair produced nothing.
+    diff: str = ""
+    #: Source tier: "critical" | "high" | "deterministic".
+    tier: str = "high"
 
 
 _MAX_LOCATIONS_PER_GROUP = 5
@@ -151,6 +159,14 @@ class _BatchItemSchema(BaseModel):
     rule_identity: str = Field(description="Echo the exact rule_identity given for this group.")
     explanation: str = Field(description="Why this class of finding is dangerous, in context.")
     remediation: str = Field(description="Concrete, actionable fix guidance for the dev team.")
+    before_snippet: str = Field(
+        default="",
+        description="Short (1-6 line) illustrative code snippet showing the INSECURE pattern.",
+    )
+    after_snippet: str = Field(
+        default="",
+        description="Short (1-6 line) illustrative code snippet showing the SECURE fix.",
+    )
     likely_false_positive: bool = Field(
         default=False, description="True only when the repo context makes this a likely non-issue."
     )
@@ -242,6 +258,9 @@ class LLMBatchTriage:
                 priority=_priority_for(g.severity),
                 remediation=item.remediation.strip() or "Review and remediate per secure-coding guidance.",
                 likely_false_positive=item.likely_false_positive,
+                before_snippet=item.before_snippet.strip(),
+                after_snippet=item.after_snippet.strip(),
+                tier="critical" if g.severity is Severity.CRITICAL else "high",
             )
         return out
 
@@ -258,6 +277,7 @@ class LLMBatchTriage:
             priority=_priority_for(group.severity),
             remediation="Review this rule against secure-coding guidance and remediate.",
             likely_false_positive=False,
+            tier="critical" if group.severity is Severity.CRITICAL else "high",
         )
 
     @staticmethod
@@ -269,9 +289,14 @@ class LLMBatchTriage:
             "actionable analysis. Group findings are already deduplicated by rule; "
             "write one remediation per rule that applies to all its occurrences.",
             "",
+            "For each group ALSO include a short illustrative code fix: a "
+            "`before_snippet` (1-6 lines showing the insecure pattern) and an "
+            "`after_snippet` (the secure version). Keep snippets generic/idiomatic "
+            "for the rule — they are examples for the dev team, not a file patch.",
+            "",
             "Return strictly a JSON object: {\"items\": [ {rule_identity, explanation, "
-            "remediation, likely_false_positive}, ... ]}. Echo each rule_identity "
-            "EXACTLY as given so it can be matched back.",
+            "remediation, before_snippet, after_snippet, likely_false_positive}, ... ]}. "
+            "Echo each rule_identity EXACTLY as given so it can be matched back.",
             "",
             "=== SECURITY RULE-GROUPS ===",
         ]

@@ -149,12 +149,15 @@ class IntelligenceStage(Stage):
         from dataclasses import replace as _replace
 
         from app.config.settings import settings
+        from app.security.models import Severity
         from app.security.intelligence.batch_triage import (
             LLMBatchTriage,
+            RuleAnalysis,
             group_findings,
             parse_severities,
             select_for_ai,
         )
+        from app.security.intelligence.remediation_kb import lookup_remediation
 
         normalized = [normalize(f) for f in raw_findings]
         deduped = deduplicate(normalized)
@@ -165,51 +168,105 @@ class IntelligenceStage(Stage):
         severities = parse_severities(settings.SECURITY_AI_SEVERITIES)
         escalate, rest = select_for_ai(groups, severities)
 
+        # A representative finding per rule (first occurrence in risk order) — used
+        # for the dedicated CRITICAL repair call.
+        representative: dict[str, Normalized_Finding] = {}
+        for f in ordered:
+            representative.setdefault(f.rule_identity, f)
+
+        # --- Tier 1+2: batched text + illustrative snippets for HIGH/CRITICAL ---
         analyzer = LLMBatchTriage(
             self._batch_llm_service(),
             batch_size=settings.SECURITY_AI_BATCH_SIZE,
             max_calls=settings.SECURITY_AI_MAX_CALLS,
         )
-        analysis = analyzer.analyze(escalate, repo_context)
+        analysis: dict[str, RuleAnalysis] = analyzer.analyze(escalate, repo_context)
+
+        # --- Tier 1: CRITICAL rule-groups get a dedicated repair call → real diff ---
+        critical_groups = [g for g in escalate if g.severity is Severity.CRITICAL]
+        max_repair = max(0, int(settings.SECURITY_AI_MAX_REPAIR_CALLS))
+        patches: dict[str, Any] = {}
+        repair_calls = 0
+        for g in critical_groups:
+            if repair_calls >= max_repair:
+                break
+            rep = representative.get(g.rule_identity)
+            if rep is None:
+                continue
+            try:
+                patch = self._repair_adapter.repair(rep, repo_context)
+                repair_calls += 1
+            except Exception as exc:  # noqa: BLE001 - repair augments; never fatal
+                logger.warning(
+                    "CRITICAL repair unavailable for %s (%s); keeping batch snippet.",
+                    g.rule_identity, exc,
+                )
+                repair_calls += 1
+                patch = None
+            if patch is not None and getattr(patch, "diff", "").strip():
+                patches[g.rule_identity] = patch
+                ra = analysis.get(g.rule_identity)
+                if ra is not None:
+                    analysis[g.rule_identity] = _replace(ra, diff=patch.diff, tier="critical")
+
+        # --- Tier 3: MEDIUM/LOW get deterministic canned guidance (0 LLM calls) ---
+        deterministic: dict[str, RuleAnalysis] = {}
+        for g in rest:
+            deterministic[g.rule_identity] = RuleAnalysis(
+                explanation=g.sample_message,
+                priority=self._priority_for_severity(g.severity),
+                remediation=lookup_remediation(g.rule_identity, g.category),
+                likely_false_positive=False,
+                tier="deterministic",
+            )
 
         logger.info(
             "IntelligenceStage(batch): %d finding(s) → %d rule-group(s); "
-            "%d escalated to AI, %d deterministic-only",
-            len(ordered),
-            len(groups),
-            len(escalate),
-            len(rest),
+            "%d HIGH/CRITICAL to AI (%d dedicated CRITICAL repair diffs), "
+            "%d MEDIUM/LOW deterministic",
+            len(ordered), len(groups), len(escalate), len(patches), len(rest),
         )
 
-        # Attach the rule-level analysis to each finding as its triage.
+        # Attach analysis (AI or deterministic) to each finding as its triage.
+        merged = {**deterministic, **analysis}  # AI wins over canned when both exist
         processed: list[Normalized_Finding] = []
         for f in ordered:
-            ra = analysis.get(f.rule_identity)
+            ra = merged.get(f.rule_identity)
+            new_f = f
             if ra is not None:
-                triage = AITriage(
-                    explanation=ra.explanation,
-                    priority=ra.priority,
-                    suggested_fix=ra.remediation,
-                    likely_false_positive=ra.likely_false_positive,
-                )
-                processed.append(
-                    _replace(
-                        f,
-                        triage=triage,
+                new_f = _replace(
+                    f,
+                    triage=AITriage(
+                        explanation=ra.explanation,
+                        priority=ra.priority,
+                        suggested_fix=ra.remediation,
                         likely_false_positive=ra.likely_false_positive,
-                        status=FindingStatus.UNRESOLVED,
-                        unresolved_reason="Advisory — see remediation guide.",
-                    )
+                    ),
+                    likely_false_positive=ra.likely_false_positive,
+                    status=FindingStatus.UNRESOLVED,
+                    unresolved_reason="Advisory — see remediation guide.",
                 )
-            else:
-                processed.append(f)
+            # Attach the real patch to the representative CRITICAL finding.
+            patch = patches.get(f.rule_identity)
+            if patch is not None and representative.get(f.rule_identity) is f:
+                new_f = _replace(new_f, candidate_patch=patch)
+            processed.append(new_f)
 
-        # Store the dev-team remediation guide (escalated groups + their analysis).
+        # Dev-team guides: escalated (AI, ordered by severity) + deterministic tail.
         context.security_remediation_guide = [
             (g, analysis.get(g.rule_identity)) for g in escalate
         ]
+        context.security_deterministic_guide = [
+            (g, deterministic.get(g.rule_identity)) for g in rest
+        ]
 
         return IntelligenceResult(fixed=(), remaining=tuple(processed))
+
+    @staticmethod
+    def _priority_for_severity(severity: Any) -> Any:
+        from app.security.intelligence.batch_triage import _priority_for
+
+        return _priority_for(severity)
 
     def _batch_llm_service(self):
         """Reuse the triage adapter's LLMService when available, else a default."""
