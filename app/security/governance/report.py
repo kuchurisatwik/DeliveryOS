@@ -363,6 +363,7 @@ def render_security_sections(
     coverage: Sequence[ScannerCoverage] = (),
     raw_findings: Sequence[Finding] = (),
     scanned_file_count: int | None = None,
+    scan_scope_mode: str | None = None,
     remediation_guide: Sequence[Any] = (),
     deterministic_guide: Sequence[Any] = (),
     repo_slug: str | None = None,
@@ -405,7 +406,11 @@ def render_security_sections(
     if commit_author:
         lines.append(f"**Author:** {commit_author}\n")
     lines.append(f"**Security Summary:** {report.security_summary}\n")
-    if scanned_file_count is not None:
+    if scan_scope_mode == "full":
+        lines.append(
+            "**Scanned scope:** whole repository (full audit mode).\n"
+        )
+    elif scanned_file_count is not None:
         lines.append(f"**Scanned scope:** {scanned_file_count} changed file(s).\n")
     if report.testing_summary:
         lines.append(f"**Testing Summary:** {report.testing_summary}\n")

@@ -49,6 +49,13 @@ class Settings(BaseSettings):
             "makes zero LLM calls and produces a deterministic-only report."
         ),
     )
+    #: Detection scope: 'commit' (default, PR-gate — scan only changed files) or
+    #: 'full' (audit — scan the entire repository). Full is for one-off/scheduled
+    #: whole-repo audits; commit-scoping is right for per-push PR checks.
+    SECURITY_SCAN_SCOPE: str = Field(
+        default="commit",
+        description="'commit' scans changed files (PR gate); 'full' scans the whole repo (audit).",
+    )
     #: Severities the batch triage sends to the LLM. Lower-severity findings are
     #: listed deterministically in the report without an AI call.
     SECURITY_AI_SEVERITIES: str = Field(

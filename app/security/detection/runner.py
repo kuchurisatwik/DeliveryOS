@@ -84,6 +84,18 @@ def derive_scan_scope(context: WorkflowContext) -> ScanScope:
     Shared by the Layer 2 :class:`DetectionStage` and the Layer 3 verification
     re-run so both scan the *same* derived scope.
     """
+    # Full-repo audit mode: scan the entire checkout ('.') rather than the commit
+    # diff. Bandit/Semgrep recurse from the repo root; the whole-repo scanners
+    # (gitleaks/trivy/checkov/codeql) already scan '.', so this makes all six
+    # cover the full repository. Opt-in via SECURITY_SCAN_SCOPE=full.
+    try:
+        from app.config.settings import settings as _settings
+
+        if (getattr(_settings, "SECURITY_SCAN_SCOPE", "commit") or "commit").strip().lower() == "full":
+            return ScanScope(paths=(".",), related_symbols=())
+    except Exception:  # noqa: BLE001 - settings must never break scope derivation
+        pass
+
     repo_ctx: Any = context.retrieved_knowledge
     paths: list[str] = []
     related: list[str] = []

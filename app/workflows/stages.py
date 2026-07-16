@@ -245,6 +245,17 @@ def _render_security_report_section(context: WorkflowContext) -> str:
     elif getattr(context, "changed_files", None):
         scanned_file_count = len(context.changed_files)
 
+    # Scope mode for the report label (commit-scoped vs full-repo audit).
+    scan_scope_mode = "commit"
+    try:
+        from app.config.settings import settings as _settings
+
+        scan_scope_mode = (
+            getattr(_settings, "SECURITY_SCAN_SCOPE", "commit") or "commit"
+        ).strip().lower()
+    except Exception:  # noqa: BLE001 - never break report rendering on settings
+        scan_scope_mode = "commit"
+
     security_summary = None
     if failed_layer:
         security_summary = (
@@ -269,6 +280,7 @@ def _render_security_report_section(context: WorkflowContext) -> str:
         coverage=coverage,
         raw_findings=raw_findings,
         scanned_file_count=scanned_file_count,
+        scan_scope_mode=scan_scope_mode,
         remediation_guide=getattr(context, "security_remediation_guide", None) or (),
         deterministic_guide=getattr(context, "security_deterministic_guide", None) or (),
         repo_slug=getattr(context, "repository", None),
