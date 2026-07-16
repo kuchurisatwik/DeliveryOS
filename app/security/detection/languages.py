@@ -113,22 +113,22 @@ DEFAULT_SEMGREP_CONFIGS: tuple[str, ...] = ("p/security-audit", "p/python")
 
 
 # --------------------------------------------------------------------------- #
-# CodeQL: canonical language -> (codeql language id, query suite).
+# CodeQL: canonical language -> codeql language id.
 # Note CodeQL folds some languages together: TypeScript is analysed by the
 # `javascript` extractor, Kotlin by `java`, and C by `cpp`.
 # --------------------------------------------------------------------------- #
-_CODEQL_LANG: dict[str, tuple[str, str]] = {
-    "python": ("python", "codeql/python-queries"),
-    "javascript": ("javascript", "codeql/javascript-queries"),
-    "typescript": ("javascript", "codeql/javascript-queries"),
-    "java": ("java", "codeql/java-queries"),
-    "kotlin": ("java", "codeql/java-queries"),
-    "csharp": ("csharp", "codeql/csharp-queries"),
-    "go": ("go", "codeql/go-queries"),
-    "c": ("cpp", "codeql/cpp-queries"),
-    "cpp": ("cpp", "codeql/cpp-queries"),
-    "ruby": ("ruby", "codeql/ruby-queries"),
-    "swift": ("swift", "codeql/swift-queries"),
+_CODEQL_LANG_ID: dict[str, str] = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "javascript",
+    "java": "java",
+    "kotlin": "java",
+    "csharp": "csharp",
+    "go": "go",
+    "c": "cpp",
+    "cpp": "cpp",
+    "ruby": "ruby",
+    "swift": "swift",
 }
 
 #: CodeQL language ids that require a build during database creation. These are
@@ -206,6 +206,18 @@ def semgrep_configs_for(languages: Iterable[str]) -> tuple[str, ...]:
     return tuple(configs)
 
 
+def codeql_suite_for(language_id: str) -> str:
+    """Return the CodeQL query-suite spec for a CodeQL ``language_id``.
+
+    Uses the **security-extended** well-known suite shipped inside each language's
+    query pack, which adds precision-adjusted security queries (more injection /
+    taint-flow coverage) on top of the default suite. Falls back gracefully at
+    runtime: if the suite cannot be resolved, the per-language analysis fails in
+    isolation and the other languages still run.
+    """
+    return f"codeql/{language_id}-queries:codeql-suites/{language_id}-security-extended.qls"
+
+
 def codeql_targets_for(languages: Iterable[str]) -> tuple[tuple[str, str], ...]:
     """Map detected ``languages`` to unique CodeQL ``(language_id, query_suite)``.
 
@@ -216,10 +228,10 @@ def codeql_targets_for(languages: Iterable[str]) -> tuple[tuple[str, str], ...]:
     targets: list[tuple[str, str]] = []
     seen: set[str] = set()
     for lang in sorted({l for l in (languages or ()) if l}):
-        target = _CODEQL_LANG.get(lang)
-        if target and target[0] not in seen:
-            seen.add(target[0])
-            targets.append(target)
+        lid = _CODEQL_LANG_ID.get(lang)
+        if lid and lid not in seen:
+            seen.add(lid)
+            targets.append((lid, codeql_suite_for(lid)))
     return tuple(targets)
 
 

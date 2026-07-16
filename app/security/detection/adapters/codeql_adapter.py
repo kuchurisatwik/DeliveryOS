@@ -63,7 +63,7 @@ class CodeQLAdapter:
         """Return the ``(codeql_language_id, query_suite)`` targets to analyse."""
         # 1. A fully-pinned single language (back-compat / explicit override).
         if self._language is not None:
-            suite = self._query_suite or f"codeql/{self._language}-queries"
+            suite = self._query_suite or lang.codeql_suite_for(self._language)
             return ((self._language, suite),)
         # 2. An explicit CodeQL language-id list.
         if self._explicit_languages:
@@ -76,7 +76,7 @@ class CodeQLAdapter:
         if not targets:
             # No CodeQL-supported language detected → preserve prior behavior by
             # analysing Python (harmless no-op when there is no Python).
-            return (("python", "codeql/python-queries"),)
+            return (("python", lang.codeql_suite_for("python")),)
         if not lang.codeql_compiled_enabled():
             # Compiled languages need a working autobuild (the main cost/failure
             # risk), so they are opt-in. Drop them unless explicitly enabled.

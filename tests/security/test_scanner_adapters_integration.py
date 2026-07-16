@@ -282,6 +282,30 @@ def test_checkov_adapter_handles_multi_framework_list_payload():
     assert findings[0].rule_id == "CKV_AWS_20"
 
 
+def test_checkov_adapter_handles_double_wrapped_list_payload():
+    # Regression: real Checkov emits a single top-level JSON *array*, which
+    # base.load_json_multi wraps again into a list — i.e. the parser receives a
+    # list-of-list. The previous single-level iteration silently dropped these
+    # (0 findings even when Checkov reported failures). It must now flatten them.
+    double_wrapped = [
+        [
+            CHECKOV_REPORT,
+            {"check_type": "dockerfile", "results": {"failed_checks": [
+                {
+                    "check_id": "CKV_DOCKER_3",
+                    "check_name": "Ensure that a user is created",
+                    "file_path": "Dockerfile",
+                    "file_line_range": [1, 1],
+                    "resource": "Dockerfile.",
+                }
+            ]}},
+        ]
+    ]
+    findings = CheckovAdapter.parse(double_wrapped)
+    assert len(findings) == 2
+    assert {f.rule_id for f in findings} == {"CKV_AWS_20", "CKV_DOCKER_3"}
+
+
 # --------------------------------------------------------------------------- #
 # Trivy (Requirement 4.6) — native JSON `Results` with vulns/misconfig/secrets.
 # --------------------------------------------------------------------------- #

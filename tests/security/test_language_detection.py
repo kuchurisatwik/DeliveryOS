@@ -100,8 +100,15 @@ def test_semgrep_adapter_explicit_config_disables_detection():
 # --------------------------------------------------------------------------- #
 def test_codeql_targets_dedup_javascript_typescript():
     targets = lang.codeql_targets_for({"javascript", "typescript"})
-    # TypeScript collapses into the javascript extractor → a single target.
-    assert targets == (("javascript", "codeql/javascript-queries"),)
+    # TypeScript collapses into the javascript extractor → a single target,
+    # using the security-extended suite.
+    assert targets == (("javascript", lang.codeql_suite_for("javascript")),)
+
+
+def test_codeql_suite_is_security_extended():
+    suite = lang.codeql_suite_for("python")
+    assert "security-extended" in suite
+    assert suite.startswith("codeql/python-queries")
 
 
 def test_codeql_targets_empty_when_unsupported():
@@ -109,10 +116,10 @@ def test_codeql_targets_empty_when_unsupported():
 
 
 def test_codeql_adapter_pinned_language_back_compat():
-    # Prior behavior: default construction analyses Python.
+    # A pinned language analyses exactly that language, security-extended suite.
     adapter = CodeQLAdapter(language="python")
     targets = adapter._resolve_targets(ScanScope(paths=("a.py",)))
-    assert targets == (("python", "codeql/python-queries"),)
+    assert targets == (("python", lang.codeql_suite_for("python")),)
 
 
 def test_codeql_adapter_auto_detects_interpreted(tmp_path, monkeypatch):
@@ -121,7 +128,7 @@ def test_codeql_adapter_auto_detects_interpreted(tmp_path, monkeypatch):
     (tmp_path / "app.rb").write_text("x = 1\n", encoding="utf-8")
     adapter = CodeQLAdapter(cwd=str(tmp_path))
     targets = adapter._resolve_targets(ScanScope(paths=("app.rb",)))
-    assert ("ruby", "codeql/ruby-queries") in targets
+    assert ("ruby", lang.codeql_suite_for("ruby")) in targets
 
 
 def test_codeql_adapter_drops_compiled_when_disabled(tmp_path, monkeypatch):

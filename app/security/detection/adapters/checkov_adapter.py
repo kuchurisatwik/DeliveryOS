@@ -113,8 +113,24 @@ class CheckovAdapter:
 
     @staticmethod
     def _iter_result_blocks(payload: Any) -> list[Mapping[str, Any]]:
-        if isinstance(payload, list):
-            return [b for b in payload if isinstance(b, Mapping)]
-        if isinstance(payload, Mapping):
-            return [payload]
-        return []
+        """Collect every Checkov result block, flattening arbitrary list nesting.
+
+        Checkov's shape varies by version/invocation: a single result object, a
+        top-level JSON array of per-framework objects, OR — once wrapped by
+        :func:`base.load_json_multi` (which returns a list of decoded documents) —
+        a *list containing that array* (list-of-list). Walking recursively and
+        collecting every ``Mapping`` handles all of these without the previous
+        single-level assumption that silently dropped a nested array (yielding 0
+        findings even when Checkov reported failures)."""
+
+        blocks: list[Mapping[str, Any]] = []
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, Mapping):
+                blocks.append(node)
+            elif isinstance(node, list):
+                for item in node:
+                    _walk(item)
+
+        _walk(payload)
+        return blocks
