@@ -104,6 +104,10 @@ Each adapter runs its tool as a subprocess and parses the native SARIF/JSON outp
 
 Language coverage is controlled by `SECURITY_LANGUAGES` (`auto` to detect, or a comma-separated allow-list like `python,javascript,go`). When nothing is detected, the SAST scanners fall back to their prior Python-centric behavior, so Python-only repositories are unchanged.
 
+**Two Windows/robustness notes learned in testing:**
+- **Subprocess output is decoded as UTF-8** (`base.run_scanner`), not the platform locale (cp1252 on Windows). Tools like Semgrep emit UTF-8 JSON/SARIF; locale decoding previously crashed or mangled it, turning a real scan into a spurious empty result.
+- **Semgrep respects `.gitignore`** when scanning a directory (e.g. full-repo `.` mode) — it only scans git-tracked files. Commit-scope passes explicit changed-file paths, which bypass gitignore. The Semgrep adapter also now treats a failed rule/config load (registry errors, non-0/1 exit) as **incomplete coverage** rather than a false "clean" 0-findings result.
+
 ---
 
 ## Layer 3 — Intelligence

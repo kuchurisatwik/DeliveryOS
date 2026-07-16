@@ -137,6 +137,47 @@ def test_semgrep_adapter_no_findings():
     assert SemgrepAdapter.parse({"results": []}) == []
 
 
+def test_semgrep_rule_load_errors_flags_global_config_error():
+    # A registry/config fetch failure has no file location → treated as a
+    # rule-load error (so the runner marks coverage incomplete, not clean).
+    payload = {
+        "results": [],
+        "errors": [
+            {
+                "level": "error",
+                "type": "Semgrep Registry error",
+                "message": "Failed to download config from https://semgrep.dev/p/python",
+            }
+        ],
+    }
+    errs = SemgrepAdapter._rule_load_errors(payload)
+    assert len(errs) == 1
+    assert "Failed to download" in errs[0]
+
+
+def test_semgrep_rule_load_errors_ignores_per_file_parse_errors():
+    # A per-file parse error carries a location → non-fatal, the rest of the scan
+    # is valid, so it must NOT be treated as a rule-load failure.
+    payload = {
+        "results": [],
+        "errors": [
+            {
+                "level": "error",
+                "type": "Syntax error",
+                "message": "cannot parse",
+                "path": "src/broken.py",
+                "spans": [{"file": "src/broken.py"}],
+            }
+        ],
+    }
+    assert SemgrepAdapter._rule_load_errors(payload) == []
+
+
+def test_semgrep_rule_load_errors_ignores_warnings():
+    payload = {"results": [], "errors": [{"level": "warn", "message": "heads up"}]}
+    assert SemgrepAdapter._rule_load_errors(payload) == []
+
+
 # --------------------------------------------------------------------------- #
 # CodeQL (Requirement 4.3) — SARIF 2.1.0, parsed via the shared SARIF parser.
 # --------------------------------------------------------------------------- #

@@ -22,6 +22,7 @@ from app.security.detection.adapters import base
 from app.security.detection.adapters.base import ScannerError
 from app.security.detection import languages as lang
 from app.security.models import Finding, ScanScope, Severity
+from app.utils.logger import logger
 
 # Semgrep `extra.severity` vocabulary -> shared Severity.
 _SEMGREP_SEVERITY: dict[str, Severity] = {
@@ -77,18 +78,95 @@ class SemgrepAdapter:
         config_args: list[str] = []
         for cfg in self._resolve_configs(scope):
             config_args.extend(["--config", cfg])
-        command = ["semgrep", *config_args, "--json", "--quiet", *scope.paths]
+        # ``--metrics=off`` avoids Semgrep's telemetry endpoint, whose transient
+        # failures/rate-limiting were the most common cause of a run silently
+        # loading no rules and reporting a false "clean" (0 findings, exit 0).
+        command = [
+            "semgrep",
+            *config_args,
+            "--metrics=off",
+            "--json",
+            "--quiet",
+            *scope.paths,
+        ]
         result = base.run_scanner(
             command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
         )
-        # Semgrep exits 0 (clean) or 1 (findings) with a JSON report on stdout.
-        # Exit codes >= 2 are fatal errors.
-        if result.returncode >= 2 and not result.stdout.strip():
+        # Semgrep exit codes: 0 (clean) / 1 (findings) are the only "the scan
+        # actually ran" outcomes. Anything else (2 = crash, 7 = config error, ...)
+        # means the run did not complete normally → treat as incomplete coverage,
+        # never as clean.
+        if result.returncode not in (0, 1) and not result.stdout.strip():
             raise ScannerError(
-                self.name, f"exited {result.returncode}: {result.stderr.strip()}"
+                self.name,
+                f"exited {result.returncode}: {result.stderr.strip()[:500]}",
             )
         payload = base.load_json(result.stdout, scanner_name=self.name, stderr=result.stderr)
-        return self.parse(payload)
+        findings = self.parse(payload)
+
+        # Robustness against the "silent clean" failure mode: if the requested
+        # rulesets failed to load (registry/config errors), Semgrep can still exit
+        # 0 with zero findings — indistinguishable from a genuinely clean scan.
+        # Detect global (non-file) errors and refuse to report a false all-clear.
+        rule_load_errors = self._rule_load_errors(payload)
+        bad_exit = result.returncode not in (0, 1)
+        if (rule_load_errors or bad_exit) and not findings:
+            detail = (
+                "; ".join(rule_load_errors)
+                if rule_load_errors
+                else f"exit code {result.returncode}"
+            )
+            raise ScannerError(
+                self.name,
+                "rules failed to load — coverage unknown, NOT clean: "
+                f"{detail}"[:500],
+            )
+        if rule_load_errors:
+            # Some rules loaded and produced findings, but at least one ruleset
+            # errored — coverage may be partial. Keep the findings, flag the risk.
+            logger.warning(
+                "Semgrep: %d ruleset error(s); coverage may be partial: %s",
+                len(rule_load_errors),
+                "; ".join(rule_load_errors)[:300],
+            )
+        return findings
+
+    @staticmethod
+    def _rule_load_errors(payload: Mapping[str, Any]) -> list[str]:
+        """Return messages for global (non-file) rule/config-load errors (pure).
+
+        Semgrep reports two kinds of ``errors[]``: per-file parse errors (which
+        carry a file ``path``/``spans`` and are non-fatal — the rest of the scan is
+        fine) and global errors such as a failed registry/config fetch or an
+        invalid rule (which carry no file location and mean rules may not have
+        loaded). Only the latter are returned, since those are what turn a broken
+        run into a deceptive "0 findings / clean" result.
+        """
+        messages: list[str] = []
+        for err in payload.get("errors") or []:
+            if not isinstance(err, Mapping):
+                continue
+            level = str(err.get("level") or "").strip().lower()
+            if level in ("warn", "warning", "info"):
+                continue
+            # Per-file errors have a location; global (rule/config) errors do not.
+            has_location = bool(
+                err.get("path") or err.get("spans") or err.get("location")
+            )
+            if has_location:
+                continue
+            etype = err.get("type")
+            if isinstance(etype, list):
+                etype = " ".join(str(x) for x in etype)
+            message = (
+                err.get("message")
+                or err.get("long_msg")
+                or err.get("short_msg")
+                or etype
+                or "unknown semgrep error"
+            )
+            messages.append(str(message))
+        return messages
 
     @classmethod
     def parse(cls, payload: Mapping[str, Any]) -> list[Finding]:

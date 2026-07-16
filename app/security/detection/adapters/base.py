@@ -111,6 +111,13 @@ def run_scanner(
             argv,
             capture_output=True,
             text=True,
+            # Force UTF-8 decoding. Without this, Python uses the platform locale
+            # encoding (cp1252 on Windows), which crashes or mangles the many
+            # tools that emit UTF-8 JSON/SARIF (e.g. Semgrep rule messages),
+            # turning a real scan into a spurious failure or empty result.
+            # ``errors="replace"`` guarantees decoding never raises.
+            encoding="utf-8",
+            errors="replace",
             check=False,
             cwd=cwd,
             timeout=timeout,
