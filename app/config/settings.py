@@ -56,6 +56,23 @@ class Settings(BaseSettings):
         default="commit",
         description="'commit' scans changed files (PR gate); 'full' scans the whole repo (audit).",
     )
+    #: Language coverage for the SAST scanners (Semgrep, CodeQL). 'auto' (default)
+    #: detects languages from the scan scope and selects matching rule packs /
+    #: query suites. A comma-separated list (e.g. 'python,javascript,go') pins the
+    #: languages explicitly. The other scanners (Gitleaks/Checkov/Trivy/Bandit)
+    #: are unaffected — they are language-agnostic or Python-specific by design.
+    SECURITY_LANGUAGES: str = Field(
+        default="auto",
+        description="'auto' detects languages from the scope; or a comma-separated allow-list.",
+    )
+    #: Whether CodeQL (deep, slow, per-language DB build) runs for compiled
+    #: languages (Java, C#, C/C++, Go) that require an autobuild. Interpreted
+    #: languages (Python, JavaScript/TypeScript, Ruby) always run when detected.
+    #: Compiled-language builds are the main cost/failure risk, so they are opt-in.
+    SECURITY_CODEQL_COMPILED: bool = Field(
+        default=False,
+        description="When True, CodeQL also analyses compiled languages (needs a working build).",
+    )
     #: Severities the batch triage sends to the LLM. Lower-severity findings are
     #: listed deterministically in the report without an AI call.
     SECURITY_AI_SEVERITIES: str = Field(

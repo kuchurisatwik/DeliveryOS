@@ -5,6 +5,13 @@ injection, command injection, XSS, SSRF, path traversal, authentication /
 authorization flaws, plus company-specific rules. It is invoked with ``--json``
 and its native JSON ``results`` array is parsed into the shared :class:`Finding`
 type.
+
+Semgrep is multi-language. When no explicit ``config`` is supplied, the adapter
+detects the languages present in the scan scope and selects the matching Semgrep
+registry rule packs (always including the broad ``p/security-audit`` pack), so a
+JavaScript/Java/Go/Ruby/… change gets language-appropriate rules instead of only
+the Python pack. When nothing is detected it falls back to the historical
+Python-centric defaults, so Python-only repositories behave exactly as before.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ from typing import Any, Mapping
 
 from app.security.detection.adapters import base
 from app.security.detection.adapters.base import ScannerError
+from app.security.detection import languages as lang
 from app.security.models import Finding, ScanScope, Severity
 
 # Semgrep `extra.severity` vocabulary -> shared Severity.
@@ -34,9 +42,9 @@ class SemgrepAdapter:
 
     #: Default rulesets. ``p/security-audit`` is Semgrep's broad security ruleset
     #: (injection, auth, crypto, deserialization, SSRF, path traversal, ...);
-    #: ``p/python`` adds the Python-focused pack. Both are passed as separate
-    #: ``--config`` flags so their rules are unioned.
-    DEFAULT_CONFIGS: tuple[str, ...] = ("p/security-audit", "p/python")
+    #: ``p/python`` adds the Python-focused pack. Used only when no config is
+    #: supplied *and* no languages are detected in the scope.
+    DEFAULT_CONFIGS: tuple[str, ...] = lang.DEFAULT_SEMGREP_CONFIGS
 
     def __init__(
         self,
@@ -45,8 +53,10 @@ class SemgrepAdapter:
         cwd: str | None = None,
         timeout: int = base.DEFAULT_TIMEOUT,
     ) -> None:
+        # ``config is None`` means "auto-select from the scope's languages at scan
+        # time"; an explicit config pins the rule packs (used by tests / overrides).
         if config is None:
-            self._configs: tuple[str, ...] = self.DEFAULT_CONFIGS
+            self._configs: tuple[str, ...] | None = None
         elif isinstance(config, str):
             self._configs = (config,)
         else:
@@ -54,11 +64,18 @@ class SemgrepAdapter:
         self._cwd = cwd
         self._timeout = timeout
 
+    def _resolve_configs(self, scope: ScanScope) -> tuple[str, ...]:
+        """Pick rule packs: explicit override, else language-aware auto-selection."""
+        if self._configs is not None:
+            return self._configs
+        detected = lang.effective_languages(scope.paths, cwd=self._cwd)
+        return lang.semgrep_configs_for(detected)
+
     def scan(self, scope: ScanScope) -> list[Finding]:
         if not scope.paths:
             return []
         config_args: list[str] = []
-        for cfg in self._configs:
+        for cfg in self._resolve_configs(scope):
             config_args.extend(["--config", cfg])
         command = ["semgrep", *config_args, "--json", "--quiet", *scope.paths]
         result = base.run_scanner(

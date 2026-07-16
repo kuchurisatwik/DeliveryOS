@@ -95,6 +95,15 @@ Each layer is a `Stage` plugged into `WorkflowOrchestrator` and communicates thr
 
 Each adapter runs its tool as a subprocess and parses the native SARIF/JSON output into the shared `Finding` type. Missing tools or timeouts surface as a handled `ScannerError` → incomplete coverage.
 
+**Multi-language coverage.** The three language-coupled scanners are driven by an automatic **language-detection** step (`app/security/detection/languages.py`), which maps the scan scope's file extensions (and a bounded directory walk in full-repo mode) to a set of languages:
+
+- **Semgrep** selects registry rule packs per detected language (always including `p/security-audit`), covering Python, JavaScript/TypeScript, Java/Kotlin, Go, Ruby, PHP, C#, and Bash.
+- **CodeQL** builds and analyses **one database per detected supported language** (JavaScript/TypeScript, Java/Kotlin, C#, Go, C/C++, Ruby, Python), with **per-language failure isolation** — a failed build for one language never loses the others. Compiled languages (Java, C#, C/C++, Go) require a working autobuild and are **opt-in** via `SECURITY_CODEQL_COMPILED` because they are the main cost/failure risk.
+- **Bandit** stays Python-specific and skips cleanly when no Python is in scope.
+- **Gitleaks / Checkov / Trivy** are language-agnostic and unaffected.
+
+Language coverage is controlled by `SECURITY_LANGUAGES` (`auto` to detect, or a comma-separated allow-list like `python,javascript,go`). When nothing is detected, the SAST scanners fall back to their prior Python-centric behavior, so Python-only repositories are unchanged.
+
 ---
 
 ## Layer 3 — Intelligence
