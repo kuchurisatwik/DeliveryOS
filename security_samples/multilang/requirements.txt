@@ -1,0 +1,4 @@
+# INTENTIONALLY VULNERABLE pinned deps (Trivy vuln scanning). Kept small on
+# purpose (2 packages) so the report isn't flooded with dependency CVEs.
+PyYAML==5.1
+Jinja2==2.10
