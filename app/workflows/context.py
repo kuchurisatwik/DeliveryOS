@@ -89,6 +89,7 @@ class WorkflowContext(BaseModel):
     security_remediation_guide: List[Any] = Field(default_factory=list, description="Batch-triage remediation guide: list of (RuleGroup, RuleAnalysis) for HIGH/CRITICAL findings")
     security_deterministic_guide: List[Any] = Field(default_factory=list, description="Deterministic (no-AI) canned remediation for MEDIUM/LOW rule-groups")
     failed_layer: Optional[str] = Field(None, description="Name of the security layer that terminated with an unrecoverable error; set by layer-failure containment so the report records which layer failed (1.4)")
+    security_scan_scope_mode: Optional[str] = Field(None, description="Actual resolved security scan scope for this run ('full' or 'commit'); captured at detection time so the report labels it correctly even after 'auto' onboarding marks the repo scanned")
 
     pr_url: Optional[str] = Field(None, description="URL of the created pull request")
     status: str = Field("INITIALIZED", description="Current status of the workflow")

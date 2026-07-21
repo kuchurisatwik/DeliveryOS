@@ -35,6 +35,7 @@ from app.security.detection.adapters import (
     CheckovAdapter,
     CodeQLAdapter,
     GitleaksAdapter,
+    NjsscanAdapter,
     ScannerError,
     SemgrepAdapter,
     TrivyAdapter,
@@ -62,6 +63,45 @@ def _dedup_preserving_order(items: Iterable[str]) -> list[str]:
     return result
 
 
+def resolve_scope_mode(context: WorkflowContext) -> str:
+    """Resolve the effective scan scope: ``'full'`` or ``'commit'`` (read-only).
+
+    Honors ``SECURITY_SCAN_SCOPE``:
+
+    * ``'full'``   → always ``'full'``.
+    * ``'commit'`` → always ``'commit'``.
+    * ``'auto'``   → ``'full'`` the first time this repository is seen (no recorded
+      successful scan yet), otherwise ``'commit'``. The decision is **read-only**
+      here; the repo is marked scanned only after the run succeeds (see
+      :class:`RecordScanStateStage`), so a failed first run retries as full.
+
+    Never raises — any settings/state error falls back to ``'commit'`` (the safe,
+    cheap default), except that an unknown repo under ``auto`` still gets ``full``.
+    """
+    try:
+        from app.config.settings import settings as _settings
+
+        mode = (getattr(_settings, "SECURITY_SCAN_SCOPE", "auto") or "auto").strip().lower()
+    except Exception:  # noqa: BLE001 - settings must never break scope derivation
+        return "commit"
+
+    if mode == "full":
+        return "full"
+    if mode == "commit":
+        return "commit"
+    if mode == "auto":
+        repository = getattr(context, "repository", None)
+        if not repository:
+            return "commit"
+        try:
+            from app.security.state.repo_scan_state import get_default_state
+
+            return "full" if get_default_state().is_first_scan(repository) else "commit"
+        except Exception:  # noqa: BLE001 - fail-open to commit if state unavailable
+            return "commit"
+    return "commit"
+
+
 def derive_scan_scope(context: WorkflowContext) -> ScanScope:
     """Derive a single :class:`ScanScope` covering the WHOLE commit (Requirement 3.2).
 
@@ -84,17 +124,21 @@ def derive_scan_scope(context: WorkflowContext) -> ScanScope:
     Shared by the Layer 2 :class:`DetectionStage` and the Layer 3 verification
     re-run so both scan the *same* derived scope.
     """
-    # Full-repo audit mode: scan the entire checkout ('.') rather than the commit
-    # diff. Bandit/Semgrep recurse from the repo root; the whole-repo scanners
-    # (gitleaks/trivy/checkov/codeql) already scan '.', so this makes all six
-    # cover the full repository. Opt-in via SECURITY_SCAN_SCOPE=full.
+    # Whole-repo mode: scan the entire checkout ('.') rather than the commit diff.
+    # Bandit/Semgrep recurse from the repo root; the whole-repo scanners
+    # (gitleaks/trivy/checkov/codeql) already scan '.', so this makes every tool
+    # cover the full repository. Selected by SECURITY_SCAN_SCOPE='full', or by
+    # 'auto' on a repository's first-ever scan (onboarding).
+    mode = resolve_scope_mode(context)
+    # Record the scope actually used on the context so the report labels it
+    # correctly even after the repo is marked "scanned" later in the run.
     try:
-        from app.config.settings import settings as _settings
-
-        if (getattr(_settings, "SECURITY_SCAN_SCOPE", "commit") or "commit").strip().lower() == "full":
-            return ScanScope(paths=(".",), related_symbols=())
-    except Exception:  # noqa: BLE001 - settings must never break scope derivation
+        if getattr(context, "security_scan_scope_mode", None) is None:
+            context.security_scan_scope_mode = mode
+    except Exception:  # noqa: BLE001 - context attr set is best-effort
         pass
+    if mode == "full":
+        return ScanScope(paths=(".",), related_symbols=())
 
     repo_ctx: Any = context.retrieved_knowledge
     paths: list[str] = []
@@ -212,6 +256,8 @@ class DetectionStage(Stage):
             GitleaksAdapter(cwd=cwd),
             CheckovAdapter(cwd=cwd),
             TrivyAdapter(cwd=cwd),
+            # Language-gated: only runs when JS/TS is present in the scope.
+            NjsscanAdapter(cwd=cwd),
         ]
 
     # ------------------------------------------------------------------ #

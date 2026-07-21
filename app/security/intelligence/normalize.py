@@ -58,6 +58,7 @@ _SCANNER_CATEGORY: dict[str, str] = {
     "bandit": "code",
     "semgrep": "code",
     "codeql": "code",
+    "njsscan": "code",
     "gitleaks": "secret",
     "checkov": "iac",
     "trivy": "dependency",

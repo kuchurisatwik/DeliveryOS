@@ -323,6 +323,7 @@ def test_end_to_end_security_pipeline_produces_report_and_never_merges(
         "DetectionStage",
         "IntelligenceStage",
         "GovernanceStage",
+        "RecordScanStateStage",
     ]
 
     # --- The context is populated by every layer (Req 1.1) ---

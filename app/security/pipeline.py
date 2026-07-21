@@ -44,6 +44,7 @@ from app.security.detection.adapters import (
     CheckovAdapter,
     CodeQLAdapter,
     GitleaksAdapter,
+    NjsscanAdapter,
     SemgrepAdapter,
     TrivyAdapter,
 )
@@ -139,6 +140,7 @@ DEFAULT_SECURITY_LAYER_NAMES: Mapping[str, str] = {
     "DetectionStage": "Detection",
     "IntelligenceStage": "Intelligence",
     "GovernanceStage": "Governance",
+    "RecordScanStateStage": "Governance",
     # Layer 1 (base workflow) — mapped for completeness / reuse in tests.
     "RepositoryIntelligenceStage": "Repository Intelligence",
 }
@@ -286,6 +288,7 @@ def make_patched_scanner(workspace: Optional[str]) -> PatchedScanner:
         GitleaksAdapter(cwd=workspace),
         CheckovAdapter(cwd=workspace),
         TrivyAdapter(cwd=workspace),
+        NjsscanAdapter(cwd=workspace),
     ]
     detection = DetectionStage(adapters=adapters)
 
@@ -427,6 +430,48 @@ class GovernanceStage(Stage):
 # ---------------------------------------------------------------------------
 
 
+class RecordScanStateStage(Stage):
+    """Record that the repository was successfully scanned (powers ``auto`` scope).
+
+    Runs last. Because the orchestrator stops on the first failure, reaching this
+    stage means detection/intelligence/governance all completed — so it is safe to
+    mark the repo "onboarded", which flips ``SECURITY_SCAN_SCOPE='auto'`` from a
+    whole-repo scan to commit-scoped on subsequent pushes. A first run that fails
+    never reaches here, so it correctly retries as a full scan next time.
+
+    Only writes state in ``auto`` mode; ``commit``/``full`` need no per-repo state.
+    """
+
+    def __init__(self, state=None) -> None:
+        self._state = state
+
+    def execute(self, context: WorkflowContext) -> None:
+        try:
+            from app.config.settings import settings
+
+            mode = (getattr(settings, "SECURITY_SCAN_SCOPE", "auto") or "auto").strip().lower()
+            if mode != "auto":
+                return
+            repository = getattr(context, "repository", None)
+            if not repository:
+                return
+            state = self._state
+            if state is None:
+                from app.security.state.repo_scan_state import get_default_state
+
+                state = get_default_state()
+            was_first = state.is_first_scan(repository)
+            state.mark_scanned(repository, getattr(context, "commit_sha", None))
+            if was_first:
+                logger.info(
+                    "RecordScanStateStage: onboarded '%s' — future pushes will be "
+                    "commit-scoped (auto mode).",
+                    repository,
+                )
+        except Exception as exc:  # noqa: BLE001 - state is advisory; never fail the run
+            logger.warning("RecordScanStateStage: could not persist scan state: %s", exc)
+
+
 def build_security_stages(
     llm_service: LLMService,
     *,
@@ -459,4 +504,7 @@ def build_security_stages(
         scan_patched=make_patched_scanner(workspace),
     )
     governance = governance_stage or GovernanceStage(sonar_client=sonar_client)
-    return [config, detection, intelligence, governance]
+    # Final: record the repo as scanned so 'auto' scope flips to commit-scoped
+    # on subsequent pushes. Runs only after all prior stages succeed.
+    record_state = RecordScanStateStage()
+    return [config, detection, intelligence, governance, record_state]

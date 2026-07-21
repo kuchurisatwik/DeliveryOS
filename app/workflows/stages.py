@@ -245,16 +245,17 @@ def _render_security_report_section(context: WorkflowContext) -> str:
     elif getattr(context, "changed_files", None):
         scanned_file_count = len(context.changed_files)
 
-    # Scope mode for the report label (commit-scoped vs full-repo audit).
-    scan_scope_mode = "commit"
-    try:
-        from app.config.settings import settings as _settings
+    # Scope mode for the report label — the ACTUAL resolved scope captured at
+    # detection time (so 'auto' onboarding shows 'full', and it isn't mislabeled
+    # after the repo is marked scanned later in the run).
+    scan_scope_mode = getattr(context, "security_scan_scope_mode", None)
+    if scan_scope_mode is None:
+        try:
+            from app.security.detection.runner import resolve_scope_mode
 
-        scan_scope_mode = (
-            getattr(_settings, "SECURITY_SCAN_SCOPE", "commit") or "commit"
-        ).strip().lower()
-    except Exception:  # noqa: BLE001 - never break report rendering on settings
-        scan_scope_mode = "commit"
+            scan_scope_mode = resolve_scope_mode(context)
+        except Exception:  # noqa: BLE001 - never break report rendering
+            scan_scope_mode = "commit"
 
     security_summary = None
     if failed_layer:

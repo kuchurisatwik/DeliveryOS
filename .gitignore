@@ -6,3 +6,5 @@ workspace/
 .pytest_cache/
 .deliveryos/cache/llm/
 dummy_multilang/
+.deliveryos/state/
+tools/

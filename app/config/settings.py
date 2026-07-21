@@ -53,8 +53,18 @@ class Settings(BaseSettings):
     #: 'full' (audit — scan the entire repository). Full is for one-off/scheduled
     #: whole-repo audits; commit-scoping is right for per-push PR checks.
     SECURITY_SCAN_SCOPE: str = Field(
-        default="commit",
-        description="'commit' scans changed files (PR gate); 'full' scans the whole repo (audit).",
+        default="auto",
+        description=(
+            "'auto' (default): scan the WHOLE repo the first time this repo is seen "
+            "(onboarding), then commit-scoped on every push after. 'commit': always "
+            "scan only changed files. 'full': always scan the whole repo (audit)."
+        ),
+    )
+    #: Where the pipeline stores per-repo scan state (which repos were onboarded).
+    #: Pipeline-side only — never written into the scanned repository.
+    SECURITY_STATE_DIR: str = Field(
+        default=os.path.join(".deliveryos", "state"),
+        description="Directory for pipeline state (e.g. which repos have been scanned).",
     )
     #: Language coverage for the SAST scanners (Semgrep, CodeQL). 'auto' (default)
     #: detects languages from the scan scope and selects matching rule packs /
@@ -72,6 +82,26 @@ class Settings(BaseSettings):
     SECURITY_CODEQL_COMPILED: bool = Field(
         default=False,
         description="When True, CodeQL also analyses compiled languages (needs a working build).",
+    )
+    #: Cross-tool correlation: merge findings of the same vulnerability class at the
+    #: same file:line reported by different scanners into one (unioning the tools),
+    #: reducing duplicate noise (e.g. one shell-injection line reported by 4 tools).
+    SECURITY_CORRELATE_FINDINGS: bool = Field(
+        default=True,
+        description="Merge same-class, same-location findings across scanners into one.",
+    )
+    #: Baseline / delta mode. A path (relative to the repo, or absolute) to a JSON
+    #: baseline of known-finding fingerprints. When set and the file exists, only
+    #: NEWLY introduced findings are reported. Empty/'off' disables delta mode.
+    SECURITY_BASELINE: str = Field(
+        default="",
+        description="Path to a baseline fingerprint file; when present, report only new findings.",
+    )
+    #: When True, (re)write the baseline file from the current run's findings instead
+    #: of filtering — use once to establish/refresh the baseline.
+    SECURITY_BASELINE_UPDATE: bool = Field(
+        default=False,
+        description="Write/refresh the baseline from this run instead of filtering.",
     )
     #: Severities the batch triage sends to the LLM. Lower-severity findings are
     #: listed deterministically in the report without an AI call.

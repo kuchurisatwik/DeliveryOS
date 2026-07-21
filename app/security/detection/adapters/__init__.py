@@ -19,6 +19,7 @@ from app.security.detection.adapters.codeql_adapter import CodeQLAdapter
 from app.security.detection.adapters.gitleaks_adapter import GitleaksAdapter
 from app.security.detection.adapters.checkov_adapter import CheckovAdapter
 from app.security.detection.adapters.trivy_adapter import TrivyAdapter
+from app.security.detection.adapters.njsscan_adapter import NjsscanAdapter
 
 __all__ = [
     "ScannerError",
@@ -28,4 +29,5 @@ __all__ = [
     "GitleaksAdapter",
     "CheckovAdapter",
     "TrivyAdapter",
+    "NjsscanAdapter",
 ]

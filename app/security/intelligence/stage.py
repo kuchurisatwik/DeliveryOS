@@ -47,6 +47,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from app.security.detection.runner import derive_scan_scope
 from app.security.intelligence.dedup import deduplicate
+from app.security.intelligence.correlate import correlate
+from app.security.intelligence import baseline as baseline_mod
 from app.security.intelligence.enrich import enrich
 from app.security.intelligence.normalize import normalize
 from app.security.intelligence.scoring import order_by_risk, score_findings
@@ -127,7 +129,77 @@ class IntelligenceStage(Stage):
                 raw_findings, repo_context, context
             )
         else:  # "per_finding" (and any legacy value) → original per-finding loop
-            context.intelligence_result = self._process(raw_findings, repo_context, scope)
+            context.intelligence_result = self._process(
+                raw_findings, repo_context, scope, context
+            )
+
+    # ------------------------------------------------------------------ #
+    # Shared deterministic core (Phase 1: + cross-tool correlation + baseline)
+    # ------------------------------------------------------------------ #
+
+    def _prepare_findings(
+        self, raw_findings: list[Any], repo_context: Any
+    ) -> list[Normalized_Finding]:
+        """normalize → dedup → (correlate) → enrich → score → order (pure).
+
+        Cross-tool correlation runs between dedup and enrich so scoring/ordering
+        operate on the merged finding set. It is gated by
+        ``SECURITY_CORRELATE_FINDINGS`` (default on).
+        """
+        from app.config.settings import settings
+
+        normalized = [normalize(f) for f in raw_findings]
+        deduped = deduplicate(normalized)
+        if getattr(settings, "SECURITY_CORRELATE_FINDINGS", True):
+            before = len(deduped)
+            deduped = correlate(deduped)
+            if len(deduped) != before:
+                logger.info(
+                    "Cross-tool correlation: %d → %d finding(s) after merging "
+                    "same-class same-location duplicates.",
+                    before, len(deduped),
+                )
+        enriched = enrich(deduped, repo_context)
+        return list(order_by_risk(score_findings(tuple(enriched))))
+
+    def _apply_baseline(
+        self, ordered: list[Normalized_Finding], context: WorkflowContext
+    ) -> list[Normalized_Finding]:
+        """Apply baseline/delta mode: filter to new findings, or refresh the baseline.
+
+        Gated by ``SECURITY_BASELINE`` (a path). When ``SECURITY_BASELINE_UPDATE``
+        is set the baseline is (re)written from this run and no filtering happens.
+        Disabled (empty setting) → returns ``ordered`` unchanged.
+        """
+        from app.config.settings import settings
+
+        path = baseline_mod.resolve_baseline_path(
+            getattr(context, "workspace", None),
+            getattr(settings, "SECURITY_BASELINE", ""),
+        )
+        if path is None:
+            return ordered
+
+        if getattr(settings, "SECURITY_BASELINE_UPDATE", False):
+            baseline_mod.write_baseline(path, ordered)
+            logger.info(
+                "Security baseline refreshed at %s (%d fingerprint(s)); no filtering.",
+                path, len(ordered),
+            )
+            return ordered
+
+        known = baseline_mod.load_baseline(path)
+        if not known:
+            logger.info(
+                "Security baseline at %s is empty/missing; reporting all findings.", path
+            )
+            return ordered
+        new_findings = baseline_mod.filter_new(ordered, known)
+        logger.info(
+            "Baseline delta: %d of %d finding(s) are new (baseline has %d known).",
+            len(new_findings), len(ordered), len(known),
+        )
+        return new_findings
 
     # ------------------------------------------------------------------ #
     # Batch mode (production): deterministic grouping + 1–N batched LLM calls
@@ -159,10 +231,8 @@ class IntelligenceStage(Stage):
         )
         from app.security.intelligence.remediation_kb import lookup_remediation
 
-        normalized = [normalize(f) for f in raw_findings]
-        deduped = deduplicate(normalized)
-        enriched = enrich(deduped, repo_context)
-        ordered = list(order_by_risk(score_findings(tuple(enriched))))
+        ordered = self._prepare_findings(raw_findings, repo_context)
+        ordered = self._apply_baseline(ordered, context)
 
         groups = group_findings(ordered)
         severities = parse_severities(settings.SECURITY_AI_SEVERITIES)
@@ -282,17 +352,17 @@ class IntelligenceStage(Stage):
     # ------------------------------------------------------------------ #
 
     def _process(
-        self, raw_findings: list[Any], repo_context: Any, scope: ScanScope
+        self,
+        raw_findings: list[Any],
+        repo_context: Any,
+        scope: ScanScope,
+        context: WorkflowContext,
     ) -> IntelligenceResult:
-        """Run normalize → dedup → enrich → score/order → triage → repair → verify."""
-        # 1. Normalization (Requirement 5) — pure.
-        normalized = [normalize(f) for f in raw_findings]
-        # 2. Deduplication (Requirement 6) — pure.
-        deduped = deduplicate(normalized)
-        # 3. Enrichment (Requirement 7) — pure.
-        enriched = enrich(deduped, repo_context)
-        # 4. Risk scoring + ordering (Requirement 8) — pure.
-        ordered = order_by_risk(score_findings(tuple(enriched)))
+        """Run normalize → dedup → correlate → enrich → score/order → baseline → triage → repair → verify."""
+        # 1-4. Normalize → dedup → correlate → enrich → score/order (pure).
+        ordered = self._prepare_findings(raw_findings, repo_context)
+        # 4b. Baseline / delta filtering (Phase 1).
+        ordered = self._apply_baseline(list(ordered), context)
         # 5. AI triage (Requirement 9) — injected adapter, retains all findings.
         triaged = attach_triage(list(ordered), self._triage_adapter, repo_context)
 

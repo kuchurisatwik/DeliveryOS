@@ -31,6 +31,7 @@ import pytest
 from app.security.pipeline import (
     DEFAULT_SECURITY_LAYER_NAMES,
     GovernanceStage,
+    RecordScanStateStage,
     MissingPipelineInputError,
     SecurityConfigResolutionStage,
     build_security_stages,
@@ -95,6 +96,7 @@ def test_build_security_stages_returns_strict_layer_order():
         DetectionStage,
         IntelligenceStage,
         GovernanceStage,
+        RecordScanStateStage,
     ]
 
 
