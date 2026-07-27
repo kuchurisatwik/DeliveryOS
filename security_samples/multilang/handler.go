@@ -20,6 +20,7 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(out)
 }
 
+
 func main() {
 	http.HandleFunc("/user", userHandler)
 	http.ListenAndServe(":8080", nil)

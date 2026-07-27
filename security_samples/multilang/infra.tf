@@ -21,6 +21,7 @@ resource "aws_s3_bucket" "public" {
   acl    = "public-read"
 }
 
+
 # Checkov: unencrypted, publicly accessible RDS with hardcoded password
 resource "aws_db_instance" "db" {
   allocated_storage   = 20

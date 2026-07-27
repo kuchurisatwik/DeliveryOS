@@ -10,6 +10,7 @@ export function handleRequest(req: { query: Record<string, string> }): void {
   });
 }
 
+
 export function buildQuery(userId: string): string {
   // Semgrep: SQL injection via template string
   return `SELECT * FROM accounts WHERE id = ${userId}`;

@@ -13,3 +13,4 @@ RUN curl http://example.com/setup.sh | sh
 
 EXPOSE 22
 CMD ["/bin/sh"]
+
