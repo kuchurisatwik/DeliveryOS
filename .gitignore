@@ -8,3 +8,5 @@ workspace/
 dummy_multilang/
 .deliveryos/state/
 tools/
+.codeql-cache/
+.vscode/

@@ -22,6 +22,7 @@ the shared scope like every other scanner.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from typing import Any, Mapping
 
@@ -47,9 +48,17 @@ class CodeQLAdapter:
         languages: tuple[str, ...] | None = None,
         cwd: str | None = None,
         timeout: int = base.DEFAULT_TIMEOUT,
+        commit_sha: str | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         self._database = database
         self._source_root = source_root
+        # Per-commit DB cache: when both a commit SHA and a cache dir are given,
+        # the database is stored at a SHA-keyed path and reused if it already
+        # exists (safe — same commit = same code = same DB). Only the newest DB
+        # per language is kept, so the cache stays bounded to ~1 DB per language.
+        self._commit_sha = (commit_sha or "").strip()
+        self._cache_dir = (cache_dir or "").strip()
         # An explicit (language, query_suite) pins a single language and disables
         # auto-detection (used by tests / overrides). ``languages`` pins an
         # explicit CodeQL language-id set. Both ``None`` => auto-detect from scope.
@@ -117,37 +126,77 @@ class CodeQLAdapter:
 
         return _filter_to_scope(all_findings, scope)
 
+    def _resolve_db_dir(self, language_id: str) -> tuple[str, bool]:
+        """Return ``(db_dir, is_valid_cache_hit)`` for a language.
+
+        Precedence: explicit ``database`` override → SHA-keyed cache (when a
+        commit SHA + cache dir are set) → a plain temp dir (no caching, preserves
+        the original behavior for tests and the verification re-run).
+        """
+        if self._database:
+            return self._database, False
+        if self._cache_dir and self._commit_sha:
+            db_dir = os.path.join(
+                self._cache_dir, f"codeql-db-{language_id}-{self._commit_sha[:12]}"
+            )
+            return db_dir, _is_valid_db(db_dir)
+        return os.path.join(tempfile.gettempdir(), f"codeql-db-{language_id}"), False
+
+    def _prune_old_dbs(self, language_id: str, *, keep: str) -> None:
+        """Delete cached DBs for ``language_id`` other than ``keep`` (bounds disk)."""
+        if not (self._cache_dir and self._commit_sha):
+            return
+        prefix = f"codeql-db-{language_id}-"
+        try:
+            for name in os.listdir(self._cache_dir):
+                if not name.startswith(prefix):
+                    continue
+                full = os.path.join(self._cache_dir, name)
+                if os.path.abspath(full) == os.path.abspath(keep):
+                    continue
+                shutil.rmtree(full, ignore_errors=True)
+        except OSError:  # pragma: no cover - best effort cleanup
+            pass
+
     def _scan_language(
         self, language_id: str, query_suite: str, source_root: str
     ) -> list[Finding]:
         """Build and analyse a single-language CodeQL database → findings."""
-        db_dir = self._database or os.path.join(
-            tempfile.gettempdir(), f"codeql-db-{language_id}"
-        )
+        db_dir, cached = self._resolve_db_dir(language_id)
 
-        # 1. Build the database. Interpreted languages (python, javascript, ruby)
-        # need no build; compiled languages rely on CodeQL's default autobuild,
-        # which may fail — that surfaces as a per-language ScannerError above.
-        create = base.run_scanner(
-            [
-                "codeql",
-                "database",
-                "create",
-                db_dir,
-                f"--language={language_id}",
-                f"--source-root={source_root}",
-                "--overwrite",
-                "--quiet",
-            ],
-            scanner_name=self.name,
-            cwd=self._cwd,
-            timeout=self._timeout,
-        )
-        if create.returncode != 0:
-            raise ScannerError(
-                self.name,
-                f"database create exited {create.returncode}: {create.stderr.strip()[:500]}",
+        # 1. Build the database, UNLESS a valid cached DB for this exact commit
+        # already exists (same SHA = same code = same DB, so reuse is safe and
+        # skips the expensive extraction). Interpreted languages need no build;
+        # compiled languages rely on CodeQL autobuild.
+        if cached:
+            logger.info(
+                "CodeQL: reusing cached %s database for commit %s (skipping build).",
+                language_id, self._commit_sha[:12],
             )
+        else:
+            create = base.run_scanner(
+                [
+                    "codeql",
+                    "database",
+                    "create",
+                    db_dir,
+                    f"--language={language_id}",
+                    f"--source-root={source_root}",
+                    "--overwrite",
+                    "--quiet",
+                ],
+                scanner_name=self.name,
+                cwd=self._cwd,
+                timeout=self._timeout,
+            )
+            if create.returncode != 0:
+                raise ScannerError(
+                    self.name,
+                    f"database create exited {create.returncode}: {create.stderr.strip()[:500]}",
+                )
+            # New DB built: drop stale DBs for this language (other commits) so
+            # the cache never grows beyond ~1 DB per language.
+            self._prune_old_dbs(language_id, keep=db_dir)
 
         # 2. Analyze the database, writing SARIF to a file (NOT stdout): CodeQL
         # streams its query-evaluation progress to stdout, which collided with a
@@ -185,6 +234,12 @@ class CodeQLAdapter:
         """Parse a CodeQL SARIF document into :class:`Finding` objects (pure)."""
 
         return base.parse_sarif(payload, scanner_name=cls.name, default_severity=Severity.MEDIUM)
+
+
+def _is_valid_db(db_dir: str) -> bool:
+    """True when ``db_dir`` looks like a complete CodeQL database (cache hit)."""
+    # CodeQL writes 'codeql-database.yml' at the DB root once creation succeeds.
+    return os.path.isfile(os.path.join(db_dir, "codeql-database.yml"))
 
 
 def _filter_to_scope(findings: list[Finding], scope: ScanScope) -> list[Finding]:

@@ -208,6 +208,7 @@ def run_ai_sde_workflow(push_event: PushEventSchema):
     logger.info(f"Pipeline mode: '{mode}' (testing={run_testing}, security={run_security})")
 
     context = WorkflowContext(
+        force_full_scope=getattr(push_event, "force_full_scope", False),
         repository=push_event.repository.full_name,
         repo_name=push_event.repository.name,
         clone_url=push_event.repository.clone_url,
@@ -293,8 +294,22 @@ async def github_webhook(
             logger.info(f"Ignoring push event for AI branch: {push_event.ref}")
             return {"status": "ignored", "message": "Ignoring AI generated branch to prevent infinite loops"}
             
-        background_tasks.add_task(run_ai_sde_workflow, push_event)
-        
+        # Enqueue on the in-process scan queue (bounded workers + SHA dedupe)
+        # instead of BackgroundTasks. This bounds concurrency (one-at-a-time on
+        # small boxes), sheds load under backpressure, and drops duplicate
+        # deliveries of the same commit (GitHub redelivery).
+        from app.workflows.scan_queue import scan_queue
+
+        if scan_queue is None:
+            # Fallback (e.g. startup hook didn't run): preserve prior behavior.
+            background_tasks.add_task(run_ai_sde_workflow, push_event)
+            return {"status": "accepted", "message": "Push event queued (background task)"}
+
+        outcome = scan_queue.submit(push_event)
+        if outcome == "duplicate":
+            return {"status": "duplicate", "message": f"Commit {push_event.after[:7]} already queued/running"}
+        if outcome == "full":
+            raise HTTPException(status_code=503, detail="Scan queue full; try again later")
         return {"status": "accepted", "message": "Push event queued for processing"}
         
     return {"status": "ignored", "message": f"Event {x_github_event} not handled"}

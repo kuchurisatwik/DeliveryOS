@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Security Pipeline — Console</title>
+  <style>
+    :root { --bg:#0f1420; --card:#1a2232; --line:#2b3a55; --fg:#e6ecf5; --mut:#93a1c0; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --accent:#4c8dff; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+    header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+    header h1 { font-size:18px; margin:0; }
+    .wrap { max-width:1000px; margin:0 auto; padding:20px; display:grid; gap:18px; grid-template-columns:1fr 1fr; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+    .card.full { grid-column:1 / -1; }
+    h2 { font-size:15px; margin:0 0 12px; }
+    label { display:block; color:var(--mut); margin:8px 0 3px; font-size:12px; }
+    input, select { width:100%; padding:8px 10px; background:#0f1626; color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+    button { background:var(--accent); color:#fff; border:0; padding:9px 14px; border-radius:6px; cursor:pointer; font-weight:600; }
+    button.sec { background:#26324a; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .row { display:flex; gap:10px; align-items:end; }
+    .row > * { flex:1; }
+    .muted { color:var(--mut); }
+    .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; border:1px solid var(--line); }
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+    code { background:#0f1626; padding:2px 6px; border-radius:4px; border:1px solid var(--line); word-break:break-all; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); font-size:12px; }
+    .toast { position:fixed; bottom:16px; right:16px; background:#26324a; border:1px solid var(--line); padding:10px 14px; border-radius:8px; display:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <span style="font-size:20px">🔒</span>
+    <h1>Security Pipeline — Console</h1>
+    <span id="qstat" class="muted" style="margin-left:auto"></span>
+  </header>
+
+  <div class="wrap">
+    <!-- Config -->
+    <div class="card">
+      <h2>⚙️ Configuration</h2>
+      <div id="secrets" class="muted" style="margin-bottom:8px"></div>
+      <div class="row">
+        <div><label>Pipeline mode</label>
+          <select id="PIPELINE_MODE"><option>security</option><option>testing</option><option>both</option></select></div>
+        <div><label>Scan scope</label>
+          <select id="SECURITY_SCAN_SCOPE"><option>auto</option><option>commit</option><option>full</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Workers (concurrent scans)</label><input id="SECURITY_SCAN_WORKERS" type="number" min="1" /></div>
+        <div><label>Triage mode</label>
+          <select id="SECURITY_TRIAGE_MODE"><option>batch</option><option>per_finding</option><option>off</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Correlate findings</label><select id="SECURITY_CORRELATE_FINDINGS"><option>true</option><option>false</option></select></div>
+        <div><label>CodeQL compiled langs</label><select id="SECURITY_CODEQL_COMPILED"><option>false</option><option>true</option></select></div>
+      </div>
+      <div style="margin-top:12px"><button onclick="saveConfig()">Save config</button>
+        <span class="muted" style="font-size:12px">Runtime only (resets on restart)</span></div>
+    </div>
+
+    <!-- Connect repo -->
+    <div class="card">
+      <h2>🔗 Connect a repository</h2>
+      <label>Full name (owner/repo)</label><input id="r_full" placeholder="kuchurisatwik/DeliveryOS" />
+      <label>Clone URL</label><input id="r_url" placeholder="https://github.com/kuchurisatwik/DeliveryOS.git" />
+      <label>Branch</label><input id="r_branch" value="main" />
+      <div style="margin-top:12px"><button onclick="addRepo()">Connect</button></div>
+      <div id="webhookInfo" style="margin-top:12px"></div>
+    </div>
+
+    <!-- Repos + scan -->
+    <div class="card full">
+      <h2>▶️ Repositories &amp; scans</h2>
+      <table id="repos"><thead><tr><th>Repository</th><th>Branch</th><th>Action</th></tr></thead><tbody></tbody></table>
+      <p class="muted" style="font-size:12px">Pushes scan automatically (webhook). "Scan whole repo" runs a full-repo scan now.</p>
+    </div>
+
+    <!-- Jobs -->
+    <div class="card full">
+      <h2>📊 Recent scans</h2>
+      <table id="jobs"><thead><tr><th>Repository</th><th>Commit</th><th>Kind</th><th>Status</th><th>When</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+function toast(m){ const t=$('toast'); t.textContent=m; t.style.display='block'; setTimeout(()=>t.style.display='none',3000); }
+async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok){ throw new Error((await r.json().catch(()=>({}))).detail || r.status); } return r.json(); }
+
+async function loadConfig(){
+  const d = await api('/api/config');
+  for(const k in d.config){ const el=$(k); if(!el) continue; el.value = String(d.config[k]); }
+  const s = d.secrets_set;
+  $('secrets').innerHTML = Object.entries(s).map(([k,v])=>`${k}: <span class="${v?'ok':'bad'}">${v?'set':'missing'}</span>`).join(' &nbsp;·&nbsp; ');
+  window._webhookUrl = d.webhook_url;
+}
+async function saveConfig(){
+  const keys=['PIPELINE_MODE','SECURITY_SCAN_SCOPE','SECURITY_SCAN_WORKERS','SECURITY_TRIAGE_MODE','SECURITY_CORRELATE_FINDINGS','SECURITY_CODEQL_COMPILED'];
+  const values={}; keys.forEach(k=>values[k]=$(k).value);
+  try{ await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values})}); toast('Config saved'); }
+  catch(e){ toast('Save failed: '+e.message); }
+}
+async function addRepo(){
+  const body={full_name:$('r_full').value.trim(), clone_url:$('r_url').value.trim(), branch:$('r_branch').value.trim()||'main'};
+  if(!body.full_name||!body.clone_url){ toast('full name + clone URL required'); return; }
+  try{
+    const d = await api('/api/repos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    $('webhookInfo').innerHTML = `<div class="muted">Add this webhook in GitHub → Settings → Webhooks:</div>
+      <div style="margin-top:6px">Payload URL: <code>${d.webhook.url}</code></div>
+      <div>Content type: <code>${d.webhook.content_type}</code> · Events: <code>${d.webhook.events}</code></div>
+      <div class="muted">Secret: ${d.webhook.secret_hint}</div>`;
+    toast('Repository connected'); loadRepos();
+  }catch(e){ toast('Connect failed: '+e.message); }
+}
+async function loadRepos(){
+  const d = await api('/api/repos');
+  const tb = $('repos').querySelector('tbody'); tb.innerHTML='';
+  (d.repos||[]).forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${r.full_name}</td><td>${r.branch}</td>
+      <td><button class="sec" onclick='scanRepo(${JSON.stringify(r.full_name)})'>Scan whole repo</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+async function scanRepo(full){
+  try{ const d = await api('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({full_name:full})});
+    toast(`Full scan ${d.status} for ${full} @ ${String(d.commit).slice(0,7)}`); loadJobs(); }
+  catch(e){ toast('Scan failed: '+e.message); }
+}
+function ago(ts){ if(!ts) return '—'; const s=Math.max(0,Math.round(Date.now()/1000 - ts)); return s<60?s+'s ago':Math.round(s/60)+'m ago'; }
+async function loadJobs(){
+  const d = await api('/api/jobs');
+  $('qstat').textContent = `queue: ${d.queue.queued} queued · ${d.queue.active_keys} active`;
+  const tb=$('jobs').querySelector('tbody'); tb.innerHTML='';
+  (d.jobs||[]).forEach(j=>{
+    const cls = j.status==='done'?'ok':(j.status==='failed'?'bad':(j.status==='running'?'warn':''));
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${j.repository||'—'}</td><td><code>${(j.key||'').slice(0,7)}</code></td>
+      <td>${j.kind||'push'}</td><td class="${cls}">${j.status}</td><td class="muted">${ago(j.submitted_at)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+loadConfig(); loadRepos(); loadJobs();
+setInterval(loadJobs, 4000);
+</script>
+</body>
+</html>

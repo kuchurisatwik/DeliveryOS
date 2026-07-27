@@ -78,6 +78,10 @@ def resolve_scope_mode(context: WorkflowContext) -> str:
     Never raises — any settings/state error falls back to ``'commit'`` (the safe,
     cheap default), except that an unknown repo under ``auto`` still gets ``full``.
     """
+    # Manual "Scan whole repo" trigger from the UI forces full scope for this run.
+    if getattr(context, "force_full_scope", False):
+        return "full"
+
     try:
         from app.config.settings import settings as _settings
 
@@ -249,10 +253,24 @@ class DetectionStage(Stage):
     def _default_adapters(context: WorkflowContext) -> list[ScannerAdapter]:
         """Construct the six real scanner adapters scoped to the workspace."""
         cwd = context.workspace
+        # CodeQL per-commit DB cache (safe reuse for the same SHA). Bounded to
+        # ~1 DB per language; disabled via SECURITY_CODEQL_CACHE=false.
+        codeql_cache_dir = None
+        commit_sha = getattr(context, "commit_sha", None)
+        try:
+            from app.config.settings import settings as _settings
+
+            if getattr(_settings, "SECURITY_CODEQL_CACHE", True) and cwd:
+                import os as _os
+
+                base_dir = getattr(_settings, "WORKSPACE_DIR", None) or _os.getcwd()
+                codeql_cache_dir = _os.path.join(base_dir, ".codeql-cache")
+        except Exception:  # noqa: BLE001 - cache is best-effort; never block scanning
+            codeql_cache_dir = None
         return [
             BanditAdapter(cwd=cwd),
             SemgrepAdapter(cwd=cwd),
-            CodeQLAdapter(cwd=cwd),
+            CodeQLAdapter(cwd=cwd, commit_sha=commit_sha, cache_dir=codeql_cache_dir),
             GitleaksAdapter(cwd=cwd),
             CheckovAdapter(cwd=cwd),
             TrivyAdapter(cwd=cwd),

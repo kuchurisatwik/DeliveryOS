@@ -103,6 +103,24 @@ class Settings(BaseSettings):
         default=False,
         description="Write/refresh the baseline from this run instead of filtering.",
     )
+    #: How many security scans run concurrently. Keep at 1 on small/single boxes
+    #: (e.g. t3.medium) — CodeQL is CPU/RAM heavy and two at once will thrash/OOM.
+    SECURITY_SCAN_WORKERS: int = Field(
+        default=1,
+        description="Concurrent security scans (1 = one-at-a-time; safe for small instances).",
+    )
+    #: Max queued scans before the webhook sheds load with HTTP 503 (backpressure).
+    SECURITY_SCAN_QUEUE_MAX: int = Field(
+        default=20,
+        description="Max queued scans; beyond this the webhook returns 503.",
+    )
+    #: Cache CodeQL databases keyed by commit SHA so the same commit isn't
+    #: re-extracted (safe — same code = same DB). Only the newest DB per language
+    #: is kept. Databases for a NEW commit are always rebuilt (never stale).
+    SECURITY_CODEQL_CACHE: bool = Field(
+        default=True,
+        description="Reuse a CodeQL DB when re-scanning the same commit SHA.",
+    )
     #: Severities the batch triage sends to the LLM. Lower-severity findings are
     #: listed deterministically in the report without an AI call.
     SECURITY_AI_SEVERITIES: str = Field(

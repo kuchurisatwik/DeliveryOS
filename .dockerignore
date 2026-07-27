@@ -1,0 +1,22 @@
+# Keep the build context small and secrets/artifacts out of the image.
+.git
+.venv
+venv/
+tools/                    # local isolated njsscan venv (rebuilt in-image via pipx)
+workspace/                # cloned repos + CodeQL DBs (runtime volume)
+.deliveryos/              # local cache + state (runtime volume)
+.codeql-cache/
+.hypothesis/
+.pytest_cache/
+__pycache__/
+*.pyc
+.env                      # secrets come from the orchestrator/secret store, never the image
+*.log
+tests/                    # not needed at runtime
+security_samples/         # test fixtures
+erp_scan.txt
+erp_security_report.md
+cpu_monitor.ps1
+trigger_push.json
+*.md
+!app/**/*.md              # keep any prompt/templates the app loads at runtime

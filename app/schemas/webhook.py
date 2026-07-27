@@ -14,3 +14,6 @@ class PushEventSchema(BaseModel):
     # Using Any to catch the rest of the payload without strict validation
     pusher: Dict[str, Any] = Field(default_factory=dict)
     sender: Dict[str, Any] = Field(default_factory=dict)
+    # Set by the manual "Scan whole repo" trigger from the UI to force a full-repo
+    # scan for this run regardless of SECURITY_SCAN_SCOPE. Never set by GitHub.
+    force_full_scope: bool = Field(default=False)
