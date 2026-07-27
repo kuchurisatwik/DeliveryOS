@@ -10,3 +10,10 @@ dummy_multilang/
 tools/
 .codeql-cache/
 .vscode/
+
+# Throwaway / generated scan artifacts
+cpu_monitor.ps1
+erp_scan.txt
+erp_security_report.md
+*_security_report.md
+*_scan.txt
