@@ -17,3 +17,6 @@ class PushEventSchema(BaseModel):
     # Set by the manual "Scan whole repo" trigger from the UI to force a full-repo
     # scan for this run regardless of SECURITY_SCAN_SCOPE. Never set by GitHub.
     force_full_scope: bool = Field(default=False)
+    # Origin of the job for display in the jobs list ("push" for webhook,
+    # "manual-full" for the UI's whole-repo trigger). Never set by GitHub.
+    kind: str = Field(default="push")

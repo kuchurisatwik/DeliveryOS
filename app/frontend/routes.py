@@ -202,8 +202,8 @@ def manual_scan(body: ScanIn):
             name=repo["name"], full_name=repo["full_name"], clone_url=repo["clone_url"]
         ),
         force_full_scope=True,   # whole-repo scan regardless of SECURITY_SCAN_SCOPE
+        kind="manual-full",      # tags the job in the recent-scans list
     )
-    setattr(event, "kind", "manual-full")
     outcome = scan_queue.submit(event)
     if outcome == "full":
         raise HTTPException(status_code=503, detail="Scan queue full; try again later")
