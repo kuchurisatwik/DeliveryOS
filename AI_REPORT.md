@@ -2,8 +2,8 @@
 
 **Repository:** kuchurisatwik/DeliveryOS
 **Commit SHA:** a5415f36cadb33f948b39660d9096f8b1b3d4ed7
-**Branch:** ai-sde/review-a5415f3-20260727121356
-**Timestamp:** 2026-07-27T12:17:19.359689Z
+**Branch:** ai-sde/review-a5415f3-20260727121546
+**Timestamp:** 2026-07-27T12:18:51.252799Z
 
 No AI analysis was generated.
 
@@ -274,13 +274,13 @@ The 40 highest-severity rule(s) below account for the key risk in this change. E
 | MEDIUM | `ckv_aws_24` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv2_aws_62` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv2_aws_5` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
-| MEDIUM | `ckv_aws_144` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv_aws_21` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
-| MEDIUM | `ckv_aws_18` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
-| MEDIUM | `ckv2_aws_61` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
-| MEDIUM | `ckv2_aws_6` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv_aws_20` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv_aws_145` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
+| MEDIUM | `ckv_aws_144` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
+| MEDIUM | `ckv2_aws_61` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
+| MEDIUM | `ckv_aws_18` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
+| MEDIUM | `ckv2_aws_6` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv_docker_2` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv_docker_3` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
 | MEDIUM | `ckv_secret_6` | 2 | Harden the infrastructure config: least-privilege access, no public exposure, encryption enabled. |
@@ -487,21 +487,21 @@ None.
   - **AI triage:** P1
   - _This request may run without certificate validation because [it is disabled](1). (beyond AI call budget — manual review recommended)_
   - **Suggested fix approach:** Review this rule against secure-coding guidance and remediate.
-- **generic-api-key** (HIGH, secret) at `security_samples/multilang/leaked_creds.env:11` — scanners: gitleaks — Advisory — see remediation guide.
-  - **AI triage:** P1
-  - _Detected a Generic API Key, potentially exposing access to various services and sensitive operations. (AI unavailable — manual review recommended)_
-  - **Suggested fix approach:** Review this rule against secure-coding guidance and remediate.
 - **hashicorp-tf-password** (HIGH, secret) at `security_samples/multilang/infra.tf:31` — scanners: gitleaks — Advisory — see remediation guide.
   - **AI triage:** P1
   - _Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches. (beyond AI call budget — manual review recommended)_
   - **Suggested fix approach:** Review this rule against secure-coding guidance and remediate.
-- **generic-api-key** (HIGH, secret) at `security_samples/gitleaks_secrets.txt:13` — scanners: gitleaks — Advisory — see remediation guide.
+- **generic-api-key** (HIGH, secret) at `security_samples/multilang/leaked_creds.env:11` — scanners: gitleaks — Advisory — see remediation guide.
   - **AI triage:** P1
   - _Detected a Generic API Key, potentially exposing access to various services and sensitive operations. (AI unavailable — manual review recommended)_
   - **Suggested fix approach:** Review this rule against secure-coding guidance and remediate.
 - **private-key** (HIGH, secret) at `security_samples/gitleaks_secrets.txt:17` — scanners: gitleaks — Advisory — see remediation guide.
   - **AI triage:** P1
   - _Identified a Private Key, which may compromise cryptographic security and sensitive data encryption. (AI unavailable — manual review recommended)_
+  - **Suggested fix approach:** Review this rule against secure-coding guidance and remediate.
+- **generic-api-key** (HIGH, secret) at `security_samples/gitleaks_secrets.txt:13` — scanners: gitleaks — Advisory — see remediation guide.
+  - **AI triage:** P1
+  - _Detected a Generic API Key, potentially exposing access to various services and sensitive operations. (AI unavailable — manual review recommended)_
   - **Suggested fix approach:** Review this rule against secure-coding guidance and remediate.
 - **cve-2019-10906** (HIGH, dependency) at `security_samples/multilang/requirements.txt:0` — scanners: trivy — Advisory — see remediation guide.
   - **AI triage:** P1
