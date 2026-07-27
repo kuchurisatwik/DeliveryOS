@@ -41,3 +41,8 @@ def insecure_hash(data: str) -> str:
 def dangerous(expr: str):
     # Bandit B307 / Semgrep: eval on untrusted input
     return eval(expr)
+
+
+# CPU-observation trigger: touch to force a commit-scoped scan of this file.
+def _noop_touch():
+    return True
