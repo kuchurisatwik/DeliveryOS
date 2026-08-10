@@ -102,15 +102,19 @@ async function showDetail(id) {
      <td class="muted">${esc(c.reason || "")}</td></tr>`).join("");
   const rows = (d.findings || []).map(f =>
     `<tr><td><span class="pill ${esc(f.severity)}">${esc(f.severity)}</span></td>
-     <td><code>${esc(f.rule_id)}</code></td><td>${esc(f.message)}</td>
-     <td><code>${esc(f.location.path)}</code></td><td class="muted">${esc(f.category)}</td></tr>`).join("");
+     <td><code>${esc(f.rule_identity)}</code></td><td>${esc(f.message)}</td>
+     <td><code>${esc(f.location.path)}</code>${f.location.symbol ? ` <span class="muted">(${esc(f.location.symbol)})</span>` : ""}</td>
+     <td class="muted">${f.occurrences > 1 ? `${f.occurrences}&times;` : "1"}</td>
+     <td class="muted"><code>${esc((f.finding_id || "").replace("finding-", ""))}</code></td></tr>`).join("");
+  const dedup = d.raw_finding_count > (d.findings || []).length
+    ? ` <span class="muted">— ${d.raw_finding_count} raw, ${d.raw_finding_count - d.findings.length} duplicate(s) merged</span>` : "";
   box.style.display = "block";
   box.innerHTML = `<h1 style="font-size:16px">Scan <code>${esc(d.scan_id)}</code></h1>
     <p class="sub"><code>${esc(d.target_url)}</code> · ${esc(d.profile)} · ${esc(d.status)}</p>
     ${err}${warn}
     <table><thead><tr><th>Tool</th><th>Status</th><th>Activity</th><th>Reason</th></tr></thead><tbody>${cov}</tbody></table>
-    <h1 style="font-size:14px;margin:20px 0 8px">Findings (${(d.findings || []).length})</h1>
-    ${rows ? `<table><thead><tr><th>Severity</th><th>Rule</th><th>What</th><th>Endpoint</th><th>Type</th></tr></thead><tbody>${rows}</tbody></table>`
+    <h1 style="font-size:14px;margin:20px 0 8px">Findings (${(d.findings || []).length})${dedup}</h1>
+    ${rows ? `<table><thead><tr><th>Severity</th><th>Rule</th><th>What</th><th>Endpoint</th><th>Seen</th><th>ID</th></tr></thead><tbody>${rows}</tbody></table>`
            : '<p class="empty">No findings reported.</p>'}`;
   box.scrollIntoView({ behavior: "smooth" });
 }

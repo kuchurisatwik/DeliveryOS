@@ -12,6 +12,7 @@ import time
 from app.utils.logger import logger
 from dast import storage
 from dast.config import dast_settings
+from dast.intelligence import consolidate
 from dast.models import DastScope, ScanRecord
 from dast.preflight import PreflightError, run_preflight
 from dast.runner import run_scan
@@ -46,7 +47,18 @@ def run_dast_scan(record: ScanRecord) -> None:
         )
         result = run_scan(scope)
 
-        record.findings = [storage.finding_to_dict(f) for f in result.findings]
+        # Normalise and deduplicate before storing. This is what gives every
+        # finding a stable ``finding_id``, which is the prerequisite for the
+        # baseline: without it there is nothing to diff between two runs.
+        consolidated = consolidate(result.findings)
+
+        record.raw_finding_count = consolidated.raw_count
+        record.findings = [
+            storage.normalized_finding_to_dict(
+                finding, consolidated.evidence.get(finding.finding_id, ())
+            )
+            for finding in consolidated.findings
+        ]
         record.coverage = [c.to_dict() for c in result.coverage]
         # A scan where no tool completed is a failed scan, not a clean one. Without
         # this the most dangerous outcome — every tool silently broken — renders as

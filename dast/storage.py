@@ -17,9 +17,9 @@ import os
 import tempfile
 import time
 import uuid
-from typing import Any
+from typing import Any, Sequence
 
-from app.security.models import Finding
+from app.security.models import Finding, Normalized_Finding
 from app.utils.logger import logger
 from dast.config import dast_settings
 from dast.models import ScanRecord
@@ -49,6 +49,41 @@ def finding_to_dict(finding: Finding) -> dict[str, Any]:
             "symbol": finding.location.symbol,
         },
         "raw": _json_safe(finding.raw),
+    }
+
+
+#: How many raw payloads to keep per deduplicated finding. A rule that fires on
+#: 400 URLs does not need 400 copies of its response body on disk — the first few
+#: prove the finding, and the occurrence count records the true scale.
+MAX_EVIDENCE_PER_FINDING = 3
+
+
+def normalized_finding_to_dict(
+    finding: Normalized_Finding, evidence: Sequence[Finding] = ()
+) -> dict[str, Any]:
+    """Serialise a deduplicated finding together with the evidence behind it.
+
+    ``finding_id`` is the field that makes a baseline possible: it is stable
+    across runs for the same issue at the same endpoint, so two scans can be
+    diffed to show only what is new.
+    """
+    return {
+        "finding_id": finding.finding_id,
+        "rule_identity": finding.rule_identity,
+        "severity": finding.severity.name,
+        "category": finding.category,
+        # Sorted for stable output: ``scanners`` is a frozenset, whose iteration
+        # order would otherwise vary between runs and churn the stored record.
+        "scanners": sorted(finding.scanners),
+        "message": finding.message,
+        "location": {
+            "path": finding.location.path,
+            "symbol": finding.location.symbol,
+        },
+        "occurrences": len(evidence),
+        "evidence": [
+            _json_safe(raw.raw) for raw in list(evidence)[:MAX_EVIDENCE_PER_FINDING]
+        ],
     }
 
 

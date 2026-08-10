@@ -167,8 +167,13 @@ class ScanRecord:
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     error: Optional[str] = None
-    #: Serialised findings (see :func:`dast.storage.finding_to_dict`).
+    #: Deduplicated findings, each carrying a stable ``finding_id``
+    #: (see :func:`dast.storage.normalized_finding_to_dict`).
     findings: list[dict[str, Any]] = field(default_factory=list)
+    #: How many findings the tools reported before deduplication. One rule firing
+    #: on 400 URLs is 400 raw findings and 1 real problem; showing both keeps the
+    #: report honest without drowning it.
+    raw_finding_count: int = 0
     #: Per-tool coverage: complete/incomplete plus the activity evidence above.
     coverage: list[dict[str, Any]] = field(default_factory=list)
     preflight: dict[str, Any] = field(default_factory=dict)
@@ -191,6 +196,7 @@ class ScanRecord:
             "finished_at": self.finished_at,
             "error": self.error,
             "finding_count": len(self.findings),
+            "raw_finding_count": self.raw_finding_count,
             "severity_counts": counts,
             "incomplete_tools": [
                 c["scanner"] for c in self.coverage if c.get("status") != "complete"
