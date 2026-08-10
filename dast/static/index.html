@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DeliveryOS DAST</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e9ef; --muted:#8b93a7; --accent:#5b9dff; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f6f7f9; --panel:#fff; --line:#e2e5ea; --text:#1b1f27; --muted:#6b7280; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input, select { width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--text); font:inherit; }
+  .row { display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:12px; align-items:end; }
+  button { padding:9px 16px; border-radius:6px; border:0; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; white-space:nowrap; }
+  button:disabled { opacity:.5; cursor:default; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr.scan { cursor:pointer; }
+  tr.scan:hover td { background:rgba(127,127,127,.06); }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .done{background:#1d7a4c33;color:#39c07f}.failed{background:#8b1f2f33;color:#ff7b8a}
+  .running{background:#8a5a0033;color:#e0a63a}.queued{background:#4b556333;color:var(--muted)}
+  .CRITICAL{background:#8b1f2f33;color:#ff7b8a}.HIGH{background:#8a3b0033;color:#ff9c5b}
+  .MEDIUM{background:#8a5a0033;color:#e0a63a}.LOW{background:#1f4a8b33;color:#7fb2ff}.INFO{background:#4b556333;color:var(--muted)}
+  .warn { background:#8a5a0022; border:1px solid #8a5a0055; border-radius:6px; padding:8px 10px; margin-bottom:12px; font-size:13px; }
+  .muted { color:var(--muted); }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .empty { color:var(--muted); padding:20px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DeliveryOS DAST</h1>
+  <p class="sub">Dynamic scanning of running deployments. Active scans hit staging only.</p>
+
+  <div class="panel">
+    <div class="row">
+      <div><label for="url">Target URL</label><input id="url" placeholder="https://staging.example.com" /></div>
+      <div><label for="sha">Commit SHA <span class="muted">(optional)</span></label><input id="sha" placeholder="a1b2c3d" /></div>
+      <div><label for="profile">Profile</label>
+        <select id="profile"><option value="fast">fast — safe</option><option value="deep">deep — attacks</option></select>
+      </div>
+      <div><button id="go">Scan</button></div>
+    </div>
+    <p id="msg" class="muted" style="margin:12px 0 0"></p>
+  </div>
+
+  <div class="panel">
+    <table>
+      <thead><tr><th>Target</th><th>Profile</th><th>Status</th><th>Findings</th><th>Tools</th><th>When</th></tr></thead>
+      <tbody id="scans"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel" id="detail" style="display:none"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ago = t => { if (!t) return "—"; const s = Math.floor(Date.now()/1000 - t);
+  if (s < 60) return s + "s ago"; if (s < 3600) return Math.floor(s/60) + "m ago"; return Math.floor(s/3600) + "h ago"; };
+
+async function refresh() {
+  try {
+    const data = await (await fetch("/api/scans")).json();
+    const tbody = $("scans");
+    if (!data.scans.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No scans yet.</td></tr>'; return; }
+    tbody.innerHTML = data.scans.map(s => {
+      const sev = Object.entries(s.severity_counts || {})
+        .map(([k, v]) => `<span class="pill ${esc(k)}">${esc(k[0])}${v}</span>`).join(" ") || '<span class="muted">0</span>';
+      const tools = s.incomplete_tools.length
+        ? `<span class="pill failed">${s.incomplete_tools.length} incomplete</span>` : '<span class="muted">ok</span>';
+      return `<tr class="scan" data-id="${esc(s.scan_id)}">
+        <td><code>${esc(s.target_url)}</code>${s.commit_sha ? `<br><span class="muted"><code>${esc(s.commit_sha.slice(0,7))}</code></span>` : ""}</td>
+        <td>${esc(s.profile)}</td>
+        <td><span class="pill ${esc(s.status)}">${esc(s.status)}</span></td>
+        <td>${sev}</td><td>${tools}</td><td class="muted">${ago(s.submitted_at)}</td></tr>`;
+    }).join("");
+    tbody.querySelectorAll("tr.scan").forEach(tr => tr.onclick = () => showDetail(tr.dataset.id));
+  } catch (e) { /* transient; next poll retries */ }
+}
+
+async function showDetail(id) {
+  const d = await (await fetch("/api/scans/" + id)).json();
+  const box = $("detail");
+  const incomplete = (d.coverage || []).filter(c => c.status !== "complete");
+  const warn = incomplete.length
+    ? `<div class="warn"><strong>Results are incomplete.</strong> ${incomplete.map(c =>
+        `${esc(c.scanner)}: ${esc(c.reason || "unknown")}`).join(" · ")}<br>
+        <span class="muted">A tool that tested nothing is not the same as a clean app.</span></div>` : "";
+  const err = d.error ? `<div class="warn"><strong>Failed.</strong> ${esc(d.error)}</div>` : "";
+  const cov = (d.coverage || []).map(c =>
+    `<tr><td>${esc(c.scanner)}</td><td><span class="pill ${c.status === "complete" ? "done" : "failed"}">${esc(c.status)}</span></td>
+     <td class="muted">${c.units_executed ?? "—"} checks · ${c.timeouts ?? 0} timeouts · ${c.duration_seconds ?? 0}s</td>
+     <td class="muted">${esc(c.reason || "")}</td></tr>`).join("");
+  const rows = (d.findings || []).map(f =>
+    `<tr><td><span class="pill ${esc(f.severity)}">${esc(f.severity)}</span></td>
+     <td><code>${esc(f.rule_id)}</code></td><td>${esc(f.message)}</td>
+     <td><code>${esc(f.location.path)}</code></td><td class="muted">${esc(f.category)}</td></tr>`).join("");
+  box.style.display = "block";
+  box.innerHTML = `<h1 style="font-size:16px">Scan <code>${esc(d.scan_id)}</code></h1>
+    <p class="sub"><code>${esc(d.target_url)}</code> · ${esc(d.profile)} · ${esc(d.status)}</p>
+    ${err}${warn}
+    <table><thead><tr><th>Tool</th><th>Status</th><th>Activity</th><th>Reason</th></tr></thead><tbody>${cov}</tbody></table>
+    <h1 style="font-size:14px;margin:20px 0 8px">Findings (${(d.findings || []).length})</h1>
+    ${rows ? `<table><thead><tr><th>Severity</th><th>Rule</th><th>What</th><th>Endpoint</th><th>Type</th></tr></thead><tbody>${rows}</tbody></table>`
+           : '<p class="empty">No findings reported.</p>'}`;
+  box.scrollIntoView({ behavior: "smooth" });
+}
+
+$("go").onclick = async () => {
+  const btn = $("go"); btn.disabled = true; $("msg").textContent = "";
+  try {
+    const res = await fetch("/scan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_url: $("url").value.trim(), commit_sha: $("sha").value.trim(),
+                             profile: $("profile").value, kind: "manual" }) });
+    const body = await res.json();
+    $("msg").textContent = res.status === 202
+      ? `Queued (${body.scan_id}).` : `${body.detail || body.status || "Request rejected."}`;
+    refresh();
+  } catch (e) { $("msg").textContent = "Could not reach the DAST service."; }
+  finally { btn.disabled = false; }
+};
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

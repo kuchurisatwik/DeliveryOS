@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1
+#
+# Production image for the standalone DeliveryOS DAST service.
+#
+# Separate from the SAST image on purpose: different tools, different lifecycle,
+# different scaling. This container talks to *running deployments*, not to a git
+# checkout, so it needs no git, no workspace, and no CodeQL.
+#
+# Design principles (mirroring the SAST image):
+#   * Binary tools are pinned release downloads.
+#   * Nuclei TEMPLATES are pinned too, and the runtime update check is disabled.
+#     Templates are executable code — they issue requests, and `code:` templates
+#     run commands — so a silent auto-update would change what decides whether a
+#     build passes, with no review and no diff.
+#   * Runs as a non-root user; state lives on a mounted volume.
+#
+# IMPORTANT: run exactly ONE uvicorn worker. The in-process scan queue lives in
+# the process; multiple workers would create multiple independent queues.
+
+FROM python:3.12-slim AS base
+
+# ---- Tool versions (bump here, review the diff) ----------------------------
+# Verify these tags exist before building; both repos publish frequently.
+ARG NUCLEI_VERSION=3.3.7
+ARG NUCLEI_TEMPLATES_TAG=v10.1.0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/usr/local/bin:${PATH}"
+
+# ---- System deps -----------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates unzip tar gzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Nuclei binary (pinned release) ---------------------------------------
+RUN curl -fsSL -o /tmp/nuclei.zip \
+      "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" \
+    && unzip -j /tmp/nuclei.zip nuclei -d /usr/local/bin \
+    && chmod +x /usr/local/bin/nuclei \
+    && rm /tmp/nuclei.zip \
+    && nuclei -version
+
+# ---- Nuclei templates (pinned tarball, NOT auto-updated) -------------------
+# Pinned like any other dependency. The adapter passes -disable-update-check so
+# a scan never silently pulls a different rule set than the one we reviewed.
+RUN mkdir -p /opt/nuclei-templates \
+    && curl -fsSL "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/${NUCLEI_TEMPLATES_TAG}.tar.gz" \
+      | tar -xz --strip-components=1 -C /opt/nuclei-templates \
+    && echo "${NUCLEI_TEMPLATES_TAG}" > /opt/nuclei-templates/.pinned-version
+
+# ---- Application -----------------------------------------------------------
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt "uvicorn[standard]" "pydantic>=2.12,<3"
+
+# The DAST service imports the shared finding model and subprocess helpers from
+# ``app.security``, so both packages ship in this image.
+COPY app ./app
+COPY dast ./dast
+
+# ---- Runtime user + writable data dirs ------------------------------------
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /data/dast-state \
+    && chown -R appuser:appuser /data /app
+USER appuser
+
+# Rate limit: our targets are typically a single uvicorn worker. At full speed
+# nuclei jams the door — requests time out, timed-out templates report nothing,
+# and the scan looks clean because it never landed.
+# Interactsh: out-of-band detection would send target hostnames to a PUBLIC
+# interact.sh server. Off unless a self-hosted server is configured.
+ENV DAST_STATE_DIR=/data/dast-state \
+    DAST_SCAN_WORKERS=1 \
+    DAST_NUCLEI_TEMPLATES=/opt/nuclei-templates \
+    DAST_NUCLEI_RATE_LIMIT=50 \
+    DAST_NUCLEI_CONCURRENCY=25 \
+    DAST_NUCLEI_INTERACTSH=false
+
+VOLUME ["/data"]
+EXPOSE 8020
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://localhost:8020/health || exit 1
+
+# One worker only (in-process queue). Scale by running more containers.
+CMD ["uvicorn", "dast.main:app", "--host", "0.0.0.0", "--port", "8020", "--workers", "1"]
