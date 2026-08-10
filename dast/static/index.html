@@ -53,7 +53,7 @@
 
   <div class="panel">
     <table>
-      <thead><tr><th>Target</th><th>Profile</th><th>Status</th><th>Findings</th><th>Tools</th><th>When</th></tr></thead>
+      <thead><tr><th>Target</th><th>Profile</th><th>Status</th><th>New</th><th>Findings</th><th>Tools</th><th>When</th></tr></thead>
       <tbody id="scans"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
     </table>
   </div>
@@ -77,10 +77,16 @@ async function refresh() {
         .map(([k, v]) => `<span class="pill ${esc(k)}">${esc(k[0])}${v}</span>`).join(" ") || '<span class="muted">0</span>';
       const tools = s.incomplete_tools.length
         ? `<span class="pill failed">${s.incomplete_tools.length} incomplete</span>` : '<span class="muted">ok</span>';
+      // The headline number. "12 findings" is the same every run; "2 new" is the
+      // only part anyone needs to act on.
+      const isNew = s.is_first_scan ? '<span class="pill queued">baseline set</span>'
+        : s.new_count > 0 ? `<span class="pill CRITICAL">${s.new_count} new</span>`
+        : '<span class="muted">none</span>';
       return `<tr class="scan" data-id="${esc(s.scan_id)}">
         <td><code>${esc(s.target_url)}</code>${s.commit_sha ? `<br><span class="muted"><code>${esc(s.commit_sha.slice(0,7))}</code></span>` : ""}</td>
         <td>${esc(s.profile)}</td>
         <td><span class="pill ${esc(s.status)}">${esc(s.status)}</span></td>
+        <td>${isNew}</td>
         <td>${sev}</td><td>${tools}</td><td class="muted">${ago(s.submitted_at)}</td></tr>`;
     }).join("");
     tbody.querySelectorAll("tr.scan").forEach(tr => tr.onclick = () => showDetail(tr.dataset.id));
@@ -100,8 +106,14 @@ async function showDetail(id) {
     `<tr><td>${esc(c.scanner)}</td><td><span class="pill ${c.status === "complete" ? "done" : "failed"}">${esc(c.status)}</span></td>
      <td class="muted">${c.units_executed ?? "—"} checks · ${c.timeouts ?? 0} timeouts · ${c.duration_seconds ?? 0}s</td>
      <td class="muted">${esc(c.reason || "")}</td></tr>`).join("");
-  const rows = (d.findings || []).map(f =>
-    `<tr><td><span class="pill ${esc(f.severity)}">${esc(f.severity)}</span></td>
+  const b = d.baseline || {};
+  const bLine = b.is_first_scan
+    ? `<p class="sub">First scan of this target — baseline established with ${(d.findings || []).length} finding(s). Future scans will report only what changes.</p>`
+    : `<p class="sub"><strong>${b.new_count || 0} new</strong> · ${b.known_count || 0} already known · ${b.resolved_count || 0} resolved`
+      + (b.unverified_count ? ` · <span class="muted">${b.unverified_count} unverified (coverage was incomplete, so we cannot tell fixed from not-checked)</span>` : "")
+      + `</p>`;
+  const rows = (d.findings || []).sort((x, y) => (y.is_new === true) - (x.is_new === true)).map(f =>
+    `<tr><td><span class="pill ${esc(f.severity)}">${esc(f.severity)}</span>${f.is_new ? ' <span class="pill CRITICAL">new</span>' : ""}</td>
      <td><code>${esc(f.rule_identity)}</code></td><td>${esc(f.message)}</td>
      <td><code>${esc(f.location.path)}</code>${f.location.symbol ? ` <span class="muted">(${esc(f.location.symbol)})</span>` : ""}</td>
      <td class="muted">${f.occurrences > 1 ? `${f.occurrences}&times;` : "1"}</td>
@@ -111,7 +123,7 @@ async function showDetail(id) {
   box.style.display = "block";
   box.innerHTML = `<h1 style="font-size:16px">Scan <code>${esc(d.scan_id)}</code></h1>
     <p class="sub"><code>${esc(d.target_url)}</code> · ${esc(d.profile)} · ${esc(d.status)}</p>
-    ${err}${warn}
+    ${bLine}${err}${warn}
     <table><thead><tr><th>Tool</th><th>Status</th><th>Activity</th><th>Reason</th></tr></thead><tbody>${cov}</tbody></table>
     <h1 style="font-size:14px;margin:20px 0 8px">Findings (${(d.findings || []).length})${dedup}</h1>
     ${rows ? `<table><thead><tr><th>Severity</th><th>Rule</th><th>What</th><th>Endpoint</th><th>Seen</th><th>ID</th></tr></thead><tbody>${rows}</tbody></table>`

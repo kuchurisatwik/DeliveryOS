@@ -87,6 +87,7 @@ def get_scan(scan_id: str) -> dict:
         **record.summary(),
         "preflight": record.preflight,
         "coverage": record.coverage,
+        "baseline": record.baseline,
         "findings": record.findings,
     }
 

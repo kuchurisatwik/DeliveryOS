@@ -177,6 +177,9 @@ class ScanRecord:
     #: Per-tool coverage: complete/incomplete plus the activity evidence above.
     coverage: list[dict[str, Any]] = field(default_factory=list)
     preflight: dict[str, Any] = field(default_factory=dict)
+    #: How this scan compared with what was already known about the target
+    #: (see :class:`dast.baseline.BaselineDiff`).
+    baseline: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         """Compact form for the scan list view (no findings payload)."""
@@ -198,6 +201,10 @@ class ScanRecord:
             "finding_count": len(self.findings),
             "raw_finding_count": self.raw_finding_count,
             "severity_counts": counts,
+            # The headline number: what changed since last time.
+            "new_count": self.baseline.get("new_count", 0),
+            "resolved_count": self.baseline.get("resolved_count", 0),
+            "is_first_scan": self.baseline.get("is_first_scan", False),
             "incomplete_tools": [
                 c["scanner"] for c in self.coverage if c.get("status") != "complete"
             ],
