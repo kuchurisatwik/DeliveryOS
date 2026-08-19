@@ -40,6 +40,7 @@ def submit_scan(request: ScanRequest) -> JSONResponse:
         commit_sha=request.commit_sha,
         profile=request.profile,
         kind=request.kind,
+        source_root=request.source_root,
     )
 
     queue = dast_queue_module.dast_queue
@@ -65,6 +66,25 @@ def submit_scan(request: ScanRequest) -> JSONResponse:
     return JSONResponse(
         status_code=202, content={"status": "accepted", "scan_id": record.scan_id}
     )
+
+
+@router.get("/internal/openapi/{scan_id}", include_in_schema=False)
+def internal_openapi(scan_id: str) -> FileResponse:
+    """Serve the synthesised OpenAPI spec for a scan back to the ZAP sidecar.
+
+    When a target publishes no spec of its own, the service synthesises one from
+    the source-extracted endpoint inventory and points ZAP's importer at this URL
+    (see :func:`dast.service._assemble_scope`). ZAP fetches the spec here and seeds
+    its site tree against the real target via a host override, so the endpoint
+    inventory reaches ZAP exactly as it reaches Schemathesis. This is an internal
+    seam on the compose network, not a public API.
+    """
+    from dast.service import synth_spec_path
+
+    path = synth_spec_path(scan_id)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "no synthesised spec for this scan")
+    return FileResponse(path, media_type="application/json")
 
 
 @router.get("/api/scans")

@@ -32,7 +32,7 @@ from typing import Any, Iterable, Sequence
 from app.security.detection.adapters import base as sast_base
 from app.security.detection.adapters.base import ScannerError
 from app.security.models import Finding, Severity
-from dast.adapters.base import load_jsonl, make_web_location
+from dast.adapters.base import load_jsonl, make_web_location, run_scanner_cancellable
 from dast.config import dast_settings
 from dast.models import DastScope, ScanOutcome, ToolActivity
 
@@ -112,6 +112,11 @@ class NucleiAdapter:
         self._concurrency = concurrency or dast_settings.DAST_NUCLEI_CONCURRENCY
         self._timeout = timeout or dast_settings.DAST_NUCLEI_TIMEOUT
         self._binary = binary
+        #: Optional "is the target still up?" probe injected by the runner. When set,
+        #: the scan runs under a watchdog that aborts nuclei early if the target
+        #: crashes mid-run, instead of grinding on to the full subprocess timeout.
+        #: ``None`` (the default, and in unit tests) keeps the plain blocking run.
+        self.health_check = None
 
     # ------------------------------------------------------------------ #
     # Impure: run the tool
@@ -120,11 +125,21 @@ class NucleiAdapter:
         report = sast_base.new_temp_report(".jsonl")
         started = time.monotonic()
         try:
-            result = sast_base.run_scanner(
-                self._build_command(scope, report),
-                scanner_name=self.name,
-                timeout=self._timeout,
-            )
+            command = self._build_command(scope, report)
+            if self.health_check is not None:
+                # Watchdog run: abort early if the target crashes mid-scan.
+                result = run_scanner_cancellable(
+                    command,
+                    scanner_name=self.name,
+                    timeout=self._timeout,
+                    health_check=self.health_check,
+                )
+            else:
+                result = sast_base.run_scanner(
+                    command,
+                    scanner_name=self.name,
+                    timeout=self._timeout,
+                )
             duration = time.monotonic() - started
 
             # Nuclei splits its diagnostics across both streams — the banner and

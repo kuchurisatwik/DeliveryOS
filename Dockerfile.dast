@@ -1,89 +1,82 @@
 # syntax=docker/dockerfile:1
 #
-# Production image for the standalone DeliveryOS DAST service.
+# Test image for the standalone DeliveryOS DAST service (Phase 1 + 2).
 #
-# Separate from the SAST image on purpose: different tools, different lifecycle,
-# different scaling. This container talks to *running deployments*, not to a git
-# checkout, so it needs no git, no workspace, and no CodeQL.
-#
-# Design principles (mirroring the SAST image):
-#   * Binary tools are pinned release downloads.
-#   * Nuclei TEMPLATES are pinned too, and the runtime update check is disabled.
-#     Templates are executable code — they issue requests, and `code:` templates
-#     run commands — so a silent auto-update would change what decides whether a
-#     build passes, with no review and no diff.
-#   * Runs as a non-root user; state lives on a mounted volume.
-#
-# IMPORTANT: run exactly ONE uvicorn worker. The in-process scan queue lives in
-# the process; multiple workers would create multiple independent queues.
+# Bundles the FastAPI service (dast + the shared app package it imports) together
+# with a pinned nuclei binary and its templates. This mirrors the production
+# intent described in the DAST_Implementation_Plan: nuclei's binary and template
+# set are baked into the image, not fetched at scan time.
 
 FROM python:3.12-slim AS base
 
-# ---- Tool versions (bump here, review the diff) ----------------------------
-# Verify these tags exist before building; both repos publish frequently.
-ARG NUCLEI_VERSION=3.3.7
-ARG NUCLEI_TEMPLATES_TAG=v10.1.0
-
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/usr/local/bin:${PATH}"
+    PYTHONUNBUFFERED=1
 
-# ---- System deps -----------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates unzip tar gzip \
+        curl ca-certificates unzip git jq \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Nuclei binary (pinned release) ---------------------------------------
-RUN curl -fsSL -o /tmp/nuclei.zip \
-      "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" \
-    && unzip -j /tmp/nuclei.zip nuclei -d /usr/local/bin \
-    && chmod +x /usr/local/bin/nuclei \
-    && rm /tmp/nuclei.zip \
-    && nuclei -version
+# ---- nuclei (latest release, resolved at build) ---------------------------
+# Templates are executable code; in production this version would be pinned and
+# bumped via a reviewed PR. For this test we resolve the current release.
+RUN set -eux; \
+    VER="$(curl -fsSL https://api.github.com/repos/projectdiscovery/nuclei/releases/latest | jq -r .tag_name | sed 's/^v//')"; \
+    curl -fsSL -o /tmp/nuclei.zip \
+      "https://github.com/projectdiscovery/nuclei/releases/download/v${VER}/nuclei_${VER}_linux_amd64.zip"; \
+    unzip -o /tmp/nuclei.zip -d /usr/local/bin nuclei; \
+    chmod +x /usr/local/bin/nuclei; \
+    rm /tmp/nuclei.zip; \
+    nuclei -version
 
-# ---- Nuclei templates (pinned tarball, NOT auto-updated) -------------------
-# Pinned like any other dependency. The adapter passes -disable-update-check so
-# a scan never silently pulls a different rule set than the one we reviewed.
-RUN mkdir -p /opt/nuclei-templates \
-    && curl -fsSL "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/${NUCLEI_TEMPLATES_TAG}.tar.gz" \
-      | tar -xz --strip-components=1 -C /opt/nuclei-templates \
-    && echo "${NUCLEI_TEMPLATES_TAG}" > /opt/nuclei-templates/.pinned-version
+# Download the template set into a fixed path the service points at.
+RUN nuclei -update-templates -update-template-dir /opt/nuclei-templates \
+    || nuclei -update-templates -ud /opt/nuclei-templates
 
-# ---- Application -----------------------------------------------------------
+# ---- Python app -----------------------------------------------------------
 WORKDIR /app
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt "uvicorn[standard]" "pydantic>=2.12,<3"
+RUN pip install --no-cache-dir \
+        fastapi "uvicorn[standard]" "pydantic>=2.12,<3" pydantic-settings \
+        python-dotenv httpx
 
-# The DAST service imports the shared finding model and subprocess helpers from
-# ``app.security``, so both packages ship in this image.
+# ---- Schemathesis (pinned, baked in — no sidecar) -------------------------
+# Schemathesis is a short-lived per-scan CLI, not a daemon, so it is baked into
+# this image exactly like the nuclei binary rather than run as a separate
+# sidecar. The tool deciding whether a build passes must not change without a
+# reviewed change, so the version is pinned to an exact released version via an
+# ARG and is NEVER `latest` or a branch reference (Req 14.1). Bump it via a
+# reviewed PR, and keep it in lockstep with DAST_SCHEMATHESIS_VERSION in
+# docker-compose / dast/config.py. The `--version` call fails the build if the
+# pinned release did not install cleanly.
+# Schemathesis 3.39.5 crashes on modern Hypothesis (a `_fallback` error), so
+# Hypothesis is pinned to the last release it works with. Bump both together via a
+# reviewed PR. Installed on the same layer so the pin can never drift from the CLI.
+ARG SCHEMATHESIS_VERSION=3.39.5
+ARG HYPOTHESIS_VERSION=6.122.3
+RUN pip install --no-cache-dir \
+        "schemathesis==${SCHEMATHESIS_VERSION}" \
+        "hypothesis==${HYPOTHESIS_VERSION}" \
+    && schemathesis --version
+
 COPY app ./app
 COPY dast ./dast
 
-# ---- Runtime user + writable data dirs ------------------------------------
-RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /data/dast-state \
-    && chown -R appuser:appuser /data /app
-USER appuser
-
-# Rate limit: our targets are typically a single uvicorn worker. At full speed
-# nuclei jams the door — requests time out, timed-out templates report nothing,
-# and the scan looks clean because it never landed.
-# Interactsh: out-of-band detection would send target hostnames to a PUBLIC
-# interact.sh server. Off unless a self-hosted server is configured.
-ENV DAST_STATE_DIR=/data/dast-state \
-    DAST_SCAN_WORKERS=1 \
-    DAST_NUCLEI_TEMPLATES=/opt/nuclei-templates \
+# ---- DAST config (Phase 1 + 2 knobs) --------------------------------------
+# Juice Shop has no /health or /openapi.json; preflight tolerates the missing
+# spec, and we point the health probe at the app root, which answers 200.
+ENV DAST_NUCLEI_TEMPLATES=/opt/nuclei-templates \
+    DAST_HEALTH_PATH=/ \
+    DAST_REQUIRE_SHA_MATCH=false \
+    DAST_NUCLEI_SEVERITY=critical,high,medium \
+    DAST_NUCLEI_EXCLUDE_TAGS=dos,fuzz,intrusive \
     DAST_NUCLEI_RATE_LIMIT=50 \
-    DAST_NUCLEI_CONCURRENCY=25 \
-    DAST_NUCLEI_INTERACTSH=false
+    DAST_NUCLEI_TIMEOUT=900 \
+    DAST_SCHEMATHESIS_VERSION=${SCHEMATHESIS_VERSION} \
+    DAST_STATE_DIR=/data/dast-state
 
+RUN mkdir -p /data/dast-state
 VOLUME ["/data"]
 EXPOSE 8020
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://localhost:8020/health || exit 1
-
-# One worker only (in-process queue). Scale by running more containers.
 CMD ["uvicorn", "dast.main:app", "--host", "0.0.0.0", "--port", "8020", "--workers", "1"]

@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Sequence
+from typing import Callable, Sequence
 
 from app.security.detection.adapters.base import ScannerError
 from app.security.models import Finding
 from app.utils.logger import logger
-from dast.adapters import NucleiAdapter
+from dast.adapters import NucleiAdapter, SchemathesisAdapter, ZapAdapter
 from dast.models import (
     DastAdapter,
     DastResult,
@@ -44,15 +44,45 @@ def default_adapters(profile: str = "fast") -> list[DastAdapter]:
     * ``fast`` — safe enough for every deploy; nothing here sends attack payloads.
     * ``deep`` — adds the slow, intrusive tools. Staging only.
 
-    Phase 1 ships nuclei only, so both profiles are currently the same. ZAP,
-    Schemathesis, sqlmap and testssl.sh slot in here as they land.
+    ZAP passive scanning is read-only, so it runs in both profiles and joins the
+    concurrent read-only tier. ZAP active scanning sends attack payloads and
+    mutates the target, so it is added for the ``deep`` profile only, where the
+    runner places it in the serial mutating tier (via the ``mutating`` flag).
+
+    Schemathesis runs in both profiles and is a mutating tool. It is placed
+    *before* the active ZAP adapter so the runner — which builds the serial
+    mutating tier by filtering while preserving list order — executes it first
+    and seeds ZAP's site tree before the active scan. When the active ZAP adapter
+    is absent (``fast`` profile), Schemathesis simply runs on its own. sqlmap and
+    testssl.sh slot in here as they land.
     """
     adapters: list[DastAdapter] = [NucleiAdapter()]
+    adapters.append(ZapAdapter(active=False))  # passive: read-only tier, both profiles
+    adapters.append(SchemathesisAdapter())  # mutating tier, FIRST (seeds ZAP site tree)
+    if profile == "deep":
+        adapters.append(ZapAdapter(active=True))  # mutating tier, AFTER schemathesis
     return adapters
 
 
-def run_scan(scope: DastScope, adapters: Sequence[DastAdapter] | None = None) -> DastResult:
-    """Run every adapter against ``scope`` and aggregate findings + coverage."""
+def run_scan(
+    scope: DastScope,
+    adapters: Sequence[DastAdapter] | None = None,
+    *,
+    health_check: "Callable[[], bool] | None" = None,
+) -> DastResult:
+    """Run every adapter against ``scope`` and aggregate findings + coverage.
+
+    ``health_check``, when supplied, is a cheap "is the target still up?" probe the
+    runner calls before each *mutating* tool. Some targets fall over under the
+    read-only tier's load (a fragile single-worker app crashes under nuclei's
+    request volume); once that happens, every later tool that reaches the target
+    through the proxy sees a flood of 5xx and would otherwise report a wall of
+    meaningless "server error" findings. If the probe reports the target down, the
+    remaining mutating tools are skipped with an honest ``incomplete`` reason
+    instead — a crashed target must degrade to "unverified", never to false
+    findings. Callers that pass no probe (the property tests) keep the prior
+    behaviour exactly.
+    """
     tools = list(adapters if adapters is not None else default_adapters(scope.profile))
     read_only = [t for t in tools if not getattr(t, "mutating", False)]
     mutating = [t for t in tools if getattr(t, "mutating", False)]
@@ -69,6 +99,14 @@ def run_scan(scope: DastScope, adapters: Sequence[DastAdapter] | None = None) ->
     findings: list[Finding] = []
     coverage: list[ToolCoverage] = []
 
+    # Hand the health probe to read-only tools that know how to use it (nuclei),
+    # so a long subprocess aborts early when the target crashes mid-run rather than
+    # hammering a dead host until its full timeout. Tools without the hook ignore it.
+    if health_check is not None:
+        for tool in read_only:
+            if hasattr(tool, "health_check"):
+                tool.health_check = health_check
+
     # Read-only tools cannot interfere with each other, so run them together.
     if read_only:
         with ThreadPoolExecutor(max_workers=len(read_only)) as pool:
@@ -80,7 +118,33 @@ def run_scan(scope: DastScope, adapters: Sequence[DastAdapter] | None = None) ->
 
     # Mutating tools change the target's state; running them concurrently would
     # make every result after the first untrustworthy.
+    target_down = False
     for tool in mutating:
+        # Before each mutating tool, confirm the target survived the previous one.
+        # A flaky probe must never fail an otherwise good scan, so only a definite
+        # "down" (after the probe's own retries) trips the guard.
+        if health_check is not None and not target_down:
+            try:
+                if not health_check():
+                    target_down = True
+            except Exception as exc:  # noqa: BLE001 - a broken probe never gates a scan
+                logger.warning("DAST health probe errored (ignoring): %s", exc)
+
+        if target_down:
+            logger.warning(
+                "DAST tool '%s' skipped: target became unreachable mid-scan", tool.name
+            )
+            coverage.append(
+                ToolCoverage(
+                    scanner=tool.name,
+                    status="incomplete",
+                    reason="target became unreachable mid-scan; skipped to avoid "
+                    "reporting false findings against a dead target",
+                    activity=ToolActivity(),
+                )
+            )
+            continue
+
         tool_findings, tool_coverage = _run_one(tool, scope)
         findings.extend(tool_findings)
         coverage.append(tool_coverage)

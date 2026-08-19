@@ -10,11 +10,105 @@ can stream as they are found.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable
+import shutil
+import subprocess
+import tempfile
+import time
+from typing import Any, Callable, Iterable
 
-from app.security.detection.adapters.base import ScannerError
+from app.security.detection.adapters.base import CompletedScan, ScannerError
 from app.security.models import Location
+from app.utils.logger import logger
 from dast.urls import endpoint_identity
+
+
+def run_scanner_cancellable(
+    command: "list[str]",
+    *,
+    scanner_name: str,
+    timeout: int,
+    health_check: "Callable[[], bool] | None" = None,
+    health_interval: float = 20.0,
+    poll_interval: float = 1.0,
+) -> CompletedScan:
+    """Run a subprocess that can be aborted early when the target dies.
+
+    This is the streaming counterpart to the SAST package's blocking
+    :func:`run_scanner`. It exists for the one DAST case that helper cannot cover:
+    a long-running scanner (nuclei) pointed at a target that *crashes mid-run*.
+    With the blocking runner, nuclei keeps hammering a dead host until its full
+    subprocess timeout (e.g. 900s) before anyone notices. Here a watchdog probes
+    ``health_check`` every ``health_interval`` seconds and kills the process the
+    moment the target is confirmed unreachable, so the tool degrades to a fast,
+    honest ``incomplete`` instead of a long stall.
+
+    Output is written to temp files rather than pipes so the poll loop cannot
+    deadlock on a full pipe buffer. When ``health_check`` is ``None`` this behaves
+    like a plain timed run.
+    """
+    argv = list(command)
+    resolved = shutil.which(argv[0])
+    if resolved is None:
+        raise ScannerError(
+            scanner_name, f"tool not installed: '{argv[0]}' not found on PATH"
+        )
+    argv[0] = resolved
+
+    logger.info("Running scanner '%s': %s", scanner_name, " ".join(argv))
+    # Temp files avoid the classic Popen pipe-buffer deadlock while we poll.
+    out_f = tempfile.TemporaryFile(mode="w+b")
+    err_f = tempfile.TemporaryFile(mode="w+b")
+    try:
+        try:
+            proc = subprocess.Popen(argv, stdout=out_f, stderr=err_f)
+        except FileNotFoundError as exc:
+            raise ScannerError(
+                scanner_name, f"tool not installed: '{argv[0]}' not found on PATH"
+            ) from exc
+        except OSError as exc:  # pragma: no cover - platform dependent
+            raise ScannerError(scanner_name, f"failed to launch: {exc}") from exc
+
+        deadline = time.monotonic() + timeout
+        last_health = time.monotonic()
+        while proc.poll() is None:
+            now = time.monotonic()
+            if now >= deadline:
+                _kill(proc)
+                raise ScannerError(scanner_name, f"timed out after {timeout}s")
+            if health_check is not None and (now - last_health) >= health_interval:
+                last_health = now
+                try:
+                    healthy = health_check()
+                except Exception as exc:  # noqa: BLE001 - a broken probe never gates a scan
+                    logger.warning("%s health probe errored (ignoring): %s", scanner_name, exc)
+                    healthy = True
+                if not healthy:
+                    _kill(proc)
+                    raise ScannerError(
+                        scanner_name,
+                        "target became unreachable mid-scan; aborted early to avoid "
+                        "hammering a dead target",
+                    )
+            time.sleep(poll_interval)
+
+        out_f.seek(0)
+        err_f.seek(0)
+        stdout = out_f.read().decode("utf-8", "replace")
+        stderr = err_f.read().decode("utf-8", "replace")
+        logger.info("Scanner '%s' finished with exit code %s", scanner_name, proc.returncode)
+        return CompletedScan(stdout=stdout, stderr=stderr, returncode=proc.returncode)
+    finally:
+        out_f.close()
+        err_f.close()
+
+
+def _kill(proc: "subprocess.Popen[bytes]") -> None:
+    """Terminate a subprocess and reap it, tolerating an already-dead process."""
+    try:
+        proc.kill()
+        proc.wait(timeout=10)
+    except Exception:  # noqa: BLE001 - best-effort cleanup
+        pass
 
 
 def make_web_location(

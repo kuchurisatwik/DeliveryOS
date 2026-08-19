@@ -1,0 +1,40 @@
+# Live DAST smoke test: pinned OWASP ZAP sidecar + OWASP Juice Shop target.
+#
+# This is a TEST harness, not the production compose. It brings up ZAP (daemon,
+# REST API exposed to the host on 8090) and Juice Shop on a shared network so ZAP
+# can reach the target at http://juiceshop:3000, while the host-side driver script
+# (scripts/live_zap_juiceshop.py) drives ZAP over http://127.0.0.1:8090.
+#
+# Juice Shop is a deliberately vulnerable app published by OWASP for exactly this
+# kind of scanner validation. The API key is disabled here purely for local
+# convenience; the production compose (docker-compose.yml) keys the daemon.
+#
+#   docker compose -f docker-compose.juiceshop.yml up -d
+#   python scripts/live_zap_juiceshop.py
+#   docker compose -f docker-compose.juiceshop.yml down
+
+services:
+  zap:
+    # Pinned to match DAST_ZAP_IMAGE in dast/config.py — never :latest (Req 11.1/11.2).
+    image: ghcr.io/zaproxy/zaproxy:2.16.1
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8090
+      -config api.disablekey=true
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+    ports:
+      - "8090:8090"
+    networks:
+      - dast-live
+
+  juiceshop:
+    # Pinned OWASP Juice Shop — the standard intentionally-vulnerable DAST target.
+    image: bkimminich/juice-shop:v17.1.1
+    ports:
+      - "3000:3000"
+    networks:
+      - dast-live
+
+networks:
+  dast-live:
+    driver: bridge

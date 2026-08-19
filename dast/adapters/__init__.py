@@ -7,5 +7,7 @@ be unit-tested against a saved file with no network and no subprocess.
 """
 
 from dast.adapters.nuclei_adapter import NucleiAdapter
+from dast.adapters.schemathesis_adapter import SchemathesisAdapter
+from dast.adapters.zap_adapter import ZapAdapter
 
-__all__ = ["NucleiAdapter"]
+__all__ = ["NucleiAdapter", "SchemathesisAdapter", "ZapAdapter"]

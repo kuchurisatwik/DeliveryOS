@@ -35,6 +35,13 @@ class DastScope:
     #: Fetched OpenAPI path templates, used to templatise URLs into stable
     #: endpoint identities (see :mod:`dast.urls`).
     spec_paths: tuple[str, ...] = ()
+    #: URL of the OpenAPI spec ZAP should import to seed its site tree. When the
+    #: target publishes no runtime spec, the service synthesises one from the
+    #: source-extracted inventory, serves it, and puts that URL here so ZAP seeds
+    #: from *our* spec instead of the target's (absent) ``/openapi.json``. ``None``
+    #: means "seed from the target's own spec at ``DAST_OPENAPI_PATH``" (the prior
+    #: behaviour), so scans of spec-publishing targets are unchanged.
+    spec_url: Optional[str] = None
     #: ``fast`` (every deploy, safe) or ``deep`` (nightly, sends real attacks).
     profile: str = "fast"
 
@@ -151,6 +158,10 @@ class ScanRequest(BaseModel):
     kind: str = Field(
         default="deploy", description="What triggered this: deploy | manual | scheduled."
     )
+    source_root: Optional[str] = Field(
+        default=None,
+        description="Checked-out repository path to extract endpoints from.",
+    )
 
 
 @dataclass
@@ -162,6 +173,12 @@ class ScanRecord:
     commit_sha: str
     profile: str
     kind: str
+    #: Checked-out repository path to statically extract endpoints from. Optional
+    #: and defaulted to None so scans without a source tree — and older on-disk
+    #: records that predate this field — deserialize unchanged. When set, the
+    #: service walks it during scope assembly to seed the scanners (see
+    #: :func:`dast.service._assemble_scope`).
+    source_root: Optional[str] = None
     status: str = "queued"  # queued | running | done | failed
     submitted_at: float = field(default_factory=time.time)
     started_at: Optional[float] = None

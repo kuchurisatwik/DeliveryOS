@@ -81,6 +81,10 @@ class Finding:
     #: set, normalization uses it instead of the scanner-wide default so a Trivy
     #: secret is categorized "secret", a Trivy misconfig "iac", etc.
     category: str | None = None
+    #: Marks a finding as advisory (informational, non-blocking). Defaults to
+    #: ``False`` so nuclei and every SAST adapter are unaffected; only DAST
+    #: active-scan findings set this to ``True``.
+    advisory: bool = False
 
 
 # ---------------------------------------------------------------------------
