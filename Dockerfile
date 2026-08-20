@@ -32,7 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIPX_HOME=/opt/pipx \
     PIPX_BIN_DIR=/usr/local/bin \
-    PATH="/usr/local/bin:/opt/codeql/codeql:${PATH}"
+    PATH="/usr/local/bin:/opt/codeql:${PATH}"
 
 # ---- System deps -----------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -61,7 +61,10 @@ RUN pip install --no-cache-dir pipx \
     && pipx install "semgrep==${SEMGREP_VERSION}" \
     && pipx install "bandit==${BANDIT_VERSION}" \
     && pipx install "checkov==${CHECKOV_VERSION}" \
-    && pipx install "njsscan==${NJSSCAN_VERSION}"
+    && pipx install "njsscan==${NJSSCAN_VERSION}" \
+    # semgrep's opentelemetry dep imports pkg_resources (setuptools), which the
+    # pipx venv lacks on py3.12 → inject it so `semgrep` doesn't crash on startup.
+    && pipx inject semgrep setuptools
 
 # ---- Application -----------------------------------------------------------
 WORKDIR /app

@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1
+#
+# Test image for the standalone DeliveryOS DAST service (Phase 1 + 2).
+#
+# Bundles the FastAPI service (dast + the shared app package it imports) together
+# with a pinned nuclei binary and its templates. This mirrors the production
+# intent described in the DAST_Implementation_Plan: nuclei's binary and template
+# set are baked into the image, not fetched at scan time.
+
+FROM python:3.12-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates unzip git jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- nuclei (latest release, resolved at build) ---------------------------
+# Templates are executable code; in production this version would be pinned and
+# bumped via a reviewed PR. For this test we resolve the current release.
+RUN set -eux; \
+    VER="$(curl -fsSL https://api.github.com/repos/projectdiscovery/nuclei/releases/latest | jq -r .tag_name | sed 's/^v//')"; \
+    curl -fsSL -o /tmp/nuclei.zip \
+      "https://github.com/projectdiscovery/nuclei/releases/download/v${VER}/nuclei_${VER}_linux_amd64.zip"; \
+    unzip -o /tmp/nuclei.zip -d /usr/local/bin nuclei; \
+    chmod +x /usr/local/bin/nuclei; \
+    rm /tmp/nuclei.zip; \
+    nuclei -version
+
+# Download the template set into a fixed path the service points at.
+RUN nuclei -update-templates -update-template-dir /opt/nuclei-templates \
+    || nuclei -update-templates -ud /opt/nuclei-templates
+
+# ---- Python app -----------------------------------------------------------
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir \
+        fastapi "uvicorn[standard]" "pydantic>=2.12,<3" pydantic-settings \
+        python-dotenv httpx
+
+# ---- Schemathesis (pinned, baked in — no sidecar) -------------------------
+# Schemathesis is a short-lived per-scan CLI, not a daemon, so it is baked into
+# this image exactly like the nuclei binary rather than run as a separate
+# sidecar. The tool deciding whether a build passes must not change without a
+# reviewed change, so the version is pinned to an exact released version via an
+# ARG and is NEVER `latest` or a branch reference (Req 14.1). Bump it via a
+# reviewed PR, and keep it in lockstep with DAST_SCHEMATHESIS_VERSION in
+# docker-compose / dast/config.py. The `--version` call fails the build if the
+# pinned release did not install cleanly.
+# Schemathesis 3.39.5 crashes on modern Hypothesis (a `_fallback` error), so
+# Hypothesis is pinned to the last release it works with. Bump both together via a
+# reviewed PR. Installed on the same layer so the pin can never drift from the CLI.
+ARG SCHEMATHESIS_VERSION=3.39.5
+ARG HYPOTHESIS_VERSION=6.122.3
+RUN pip install --no-cache-dir \
+        "schemathesis==${SCHEMATHESIS_VERSION}" \
+        "hypothesis==${HYPOTHESIS_VERSION}" \
+    && schemathesis --version
+
+COPY app ./app
+COPY dast ./dast
+
+# ---- DAST config (Phase 1 + 2 knobs) --------------------------------------
+# Juice Shop has no /health or /openapi.json; preflight tolerates the missing
+# spec, and we point the health probe at the app root, which answers 200.
+ENV DAST_NUCLEI_TEMPLATES=/opt/nuclei-templates \
+    DAST_HEALTH_PATH=/ \
+    DAST_REQUIRE_SHA_MATCH=false \
+    DAST_NUCLEI_SEVERITY=critical,high,medium \
+    DAST_NUCLEI_EXCLUDE_TAGS=dos,fuzz,intrusive \
+    DAST_NUCLEI_RATE_LIMIT=50 \
+    DAST_NUCLEI_TIMEOUT=900 \
+    DAST_SCHEMATHESIS_VERSION=${SCHEMATHESIS_VERSION} \
+    DAST_STATE_DIR=/data/dast-state
+
+RUN mkdir -p /data/dast-state
+VOLUME ["/data"]
+EXPOSE 8020
+
+CMD ["uvicorn", "dast.main:app", "--host", "0.0.0.0", "--port", "8020", "--workers", "1"]

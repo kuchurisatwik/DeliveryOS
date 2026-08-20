@@ -1,0 +1,59 @@
+# DAST service + pinned OWASP ZAP sidecar.
+#
+# ZAP runs as a long-lived daemon in its own container; the DAST service drives it
+# over its REST API at zap:8090 across the compose network, so no per-scan JVM
+# startup cost is paid (Req 1.1, 1.2). The image is pinned to an explicit version
+# (never :latest) so the tool deciding whether a build passes cannot change without
+# a reviewed PR (Req 11.1, 11.2). The pin matches DAST_ZAP_IMAGE in dast/config.py.
+
+services:
+  dast:
+    build:
+      context: .
+      dockerfile: Dockerfile.dast
+      args:
+        # Keep in lockstep with DAST_SCHEMATHESIS_VERSION below and in
+        # dast/config.py — an exact released version, never :latest (Req 14.1).
+        SCHEMATHESIS_VERSION: "3.39.5"
+    environment:
+      # Reach the warm ZAP daemon over the compose network (Req 1.1, 1.4).
+      # These same two settings double as the Schemathesis HTTP proxy target
+      # (Req 3.1, 3.2): Schemathesis routes every generated request through this
+      # ZAP sidecar, so one run also seeds ZAP's site tree with authenticated
+      # traffic — no separate proxy plumbing.
+      DAST_ZAP_HOST: zap
+      DAST_ZAP_PORT: "8090"
+      DAST_ZAP_API_KEY: ${DAST_ZAP_API_KEY}
+      DAST_ZAP_CANARY_PATH: /canary/xss
+      # Schemathesis (Phase 4): pinned CLI baked into Dockerfile.dast, driven as
+      # a short-lived per-scan subprocess — no sidecar. Proxy host/port reuse the
+      # DAST_ZAP_HOST / DAST_ZAP_PORT above (Req 3.2); the schema URL reuses
+      # DAST_OPENAPI_PATH. Defaults mirror dast/config.py.
+      DAST_SCHEMATHESIS_VERSION: "3.39.5"
+      DAST_SCHEMATHESIS_SEED: "0"
+      DAST_SCHEMATHESIS_RATE_LIMIT: "10"
+      DAST_SCHEMATHESIS_SCHEMA_TIMEOUT: "30"
+      DAST_SCHEMATHESIS_CONNECT_TIMEOUT: "30"
+      DAST_SCHEMATHESIS_PROXY_CONNECT_TIMEOUT: "5"
+      DAST_SCHEMATHESIS_TIMEOUT: "900"
+      DAST_SCHEMATHESIS_TIMEOUT_THRESHOLD: "50"
+    depends_on:
+      - zap
+    ports:
+      - "8020:8020"
+    volumes:
+      - dast-state:/data
+
+  zap:
+    # Pinned by explicit version, never :latest — the tool deciding whether a build
+    # passes cannot change without a reviewed change (Req 11.1, 11.2). Keep this in
+    # lockstep with DAST_ZAP_IMAGE in dast/config.py.
+    image: ghcr.io/zaproxy/zaproxy:2.16.1
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8090
+      -config api.key=${DAST_ZAP_API_KEY}
+    expose:
+      - "8090"
+
+volumes:
+  dast-state:

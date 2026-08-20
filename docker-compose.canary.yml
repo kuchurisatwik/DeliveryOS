@@ -1,0 +1,93 @@
+# Full-pipeline DAST validation against a dedicated, canary-equipped target.
+#
+# This is a TEST harness. It brings up three containers on one network:
+#
+#   dast    - the DAST service (Dockerfile.dast): nuclei + schemathesis baked in,
+#             drives ZAP over REST, and serves the synthesised OpenAPI spec back to
+#             ZAP at http://dast:8020/internal/openapi/<scan_id>.
+#   zap     - the pinned OWASP ZAP daemon (REST API on 8090, key disabled locally).
+#   canary  - a deliberately-vulnerable Flask target that publishes NO spec of its
+#             own and exposes /canary/xss, so the run exercises (a) seeding ZAP from
+#             our engine-synthesised spec and (b) the ZAP canary trust gate.
+#
+# Usage:
+#   docker compose -f docker-compose.canary.yml up -d --build
+#   # then POST a scan (source_root points at the mounted canary source):
+#   curl -X POST http://localhost:8020/scan -H "Content-Type: application/json" \
+#     -d '{"target_url":"http://canary:5000","profile":"deep","source_root":"/src/canary"}'
+#   docker compose -f docker-compose.canary.yml down
+
+services:
+  dast:
+    build:
+      context: .
+      dockerfile: Dockerfile.dast
+      args:
+        SCHEMATHESIS_VERSION: "3.39.5"
+        HYPOTHESIS_VERSION: "6.122.3"
+    environment:
+      # Reach the ZAP daemon over the compose network.
+      DAST_ZAP_HOST: zap
+      DAST_ZAP_PORT: "8090"
+      DAST_ZAP_API_KEY: ""
+      DAST_ZAP_CANARY_PATH: /canary/xss
+      # How ZAP reaches us to fetch the synthesised spec we seed it with.
+      DAST_SELF_URL: http://dast:8020
+      # The canary target answers 200 on / (it has no /health).
+      DAST_HEALTH_PATH: /
+      DAST_REQUIRE_SHA_MATCH: "false"
+      # Conservative rates so even a fragile single-worker target (e.g. Juice Shop)
+      # survives the scan instead of crashing and turning every later request into a
+      # 502. These are the per-deployment knobs for adapting to a delicate target.
+      DAST_NUCLEI_RATE_LIMIT: "15"
+      DAST_NUCLEI_CONCURRENCY: "10"
+      DAST_ZAP_RATE_LIMIT: "15"
+      DAST_SCHEMATHESIS_VERSION: "3.39.5"
+      DAST_SCHEMATHESIS_RATE_LIMIT: "5"
+      # Generous ceiling for ZAP's synchronous OpenAPI import (it fetches every
+      # endpoint) so seeding a large spec against a slow target does not time out.
+      DAST_ZAP_IMPORT_TIMEOUT: "300"
+      DAST_STATE_DIR: /data/dast-state
+    depends_on:
+      - zap
+      - canary
+    ports:
+      - "8020:8020"
+    volumes:
+      # Persist scan records to the host so they can be inspected after the run.
+      - ./.deliveryos/dast-state:/data/dast-state
+      # Mount the canary target's source read-only so the extractor can walk it.
+      - ./security_samples/canary_target:/src/canary:ro
+      # Juice Shop source (copied out of the image) for a real-target validation run.
+      - ./workspace/_juiceshop_src:/src/juiceshop:ro
+    networks:
+      - dast-canary
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:2.16.1
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8090
+      -config api.disablekey=true
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+    expose:
+      - "8090"
+    ports:
+      - "8090:8090"
+    networks:
+      - dast-canary
+
+  canary:
+    build:
+      context: ./security_samples/canary_target
+      dockerfile: Dockerfile
+    expose:
+      - "5000"
+    ports:
+      - "5000:5000"
+    networks:
+      - dast-canary
+
+networks:
+  dast-canary:
+    driver: bridge

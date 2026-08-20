@@ -2,8 +2,8 @@
 
 Gitleaks detects leaked secrets: API keys, cloud credentials, SSH private keys,
 tokens, database passwords, and ``.env`` leaks. It is invoked in ``detect`` mode
-with ``--report-format json --report-path -`` so its native JSON report (a flat
-array of leak objects) is written to stdout and parsed into :class:`Finding`
+with ``--report-format json --report-path <file>`` so its native JSON report (a
+flat array of leak objects) is written to a file and parsed into :class:`Finding`
 objects. Leaked secrets have no native severity, so they are reported as HIGH.
 """
 
@@ -37,28 +37,40 @@ class GitleaksAdapter:
         # (the cloned repo root), NOT just the first scoped path. Scoping secret
         # detection to a single changed file misses secrets everywhere else.
         source = self._source
-        command = [
-            "gitleaks",
-            "detect",
-            "--no-git",
-            "--source",
-            source,
-            "--report-format",
-            "json",
-            "--report-path",
-            "-",
-        ]
-        result = base.run_scanner(
-            command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
-        )
-        # Gitleaks exits 0 (no leaks) or 1 (leaks found), both with a JSON array
-        # on stdout. Higher exit codes indicate a real error.
-        if result.returncode >= 2 and not result.stdout.strip():
-            raise ScannerError(
-                self.name, f"exited {result.returncode}: {result.stderr.strip()}"
+        # Write the JSON report to a temp FILE rather than stdout ("-"): gitleaks
+        # 8.18+ does not reliably emit the JSON array on stdout (only the human
+        # summary, on stderr), which silently dropped real findings. A report file
+        # is version-robust and matches the bandit/njsscan adapters.
+        report = base.new_temp_report(".json")
+        try:
+            command = [
+                "gitleaks",
+                "detect",
+                "--no-git",
+                "--source",
+                source,
+                "--report-format",
+                "json",
+                "--report-path",
+                report,
+            ]
+            result = base.run_scanner(
+                command, scanner_name=self.name, cwd=self._cwd, timeout=self._timeout
             )
-        payload = base.load_json(result.stdout, scanner_name=self.name, stderr=result.stderr)
-        return self.parse(payload)
+            text = base.read_report(report)
+            # Gitleaks exits 0 (no leaks) or 1 (leaks found); both write the JSON
+            # array to the report file. Higher exit codes indicate a real error.
+            if not text.strip():
+                if result.returncode >= 2:
+                    raise ScannerError(
+                        self.name,
+                        f"exited {result.returncode}: {result.stderr.strip()[:500]}",
+                    )
+                return []
+            payload = base.load_json(text, scanner_name=self.name, stderr=result.stderr)
+            return self.parse(payload)
+        finally:
+            base.cleanup(report)
 
     @classmethod
     def parse(cls, payload: Any) -> list[Finding]:

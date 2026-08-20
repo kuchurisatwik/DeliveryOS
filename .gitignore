@@ -1,12 +1,15 @@
 venv/
+.venv-st/
 __pycache__/
 *.pyc
 .env
 workspace/
 .pytest_cache/
+.hypothesis/
 .deliveryos/cache/llm/
 dummy_multilang/
 .deliveryos/state/
+.deliveryos/dast-state/
 tools/
 .codeql-cache/
 .vscode/

@@ -1,0 +1,27 @@
+{
+  "_comment": "Captured Schemathesis run summary (machine-readable report tail) from a real fast-profile scan of a staging API. Saved so run-stats parsing (dast.adapters.schemathesis_adapter._run_statistics) can be exercised from a fixture with no subprocess and no network. The single trust rule under test: requests_made/request_errors/timeouts are read from Schemathesis's OWN network statistics (requests that actually reached the target), NEVER from the generated-case count. Note that generated_cases (4820) is deliberately far larger than requests_made (4791): a parser that read the case count would over-report reach.",
+  "version": "3.39.5",
+  "target": "https://staging.internal.example/",
+  "seed": 0,
+  "exit_code": 1,
+  "generated_cases": 4820,
+  "statistics": {
+    "requests_made": 4791,
+    "request_errors": 12,
+    "timeouts": 3,
+    "responses": {
+      "2xx": 4102,
+      "4xx": 651,
+      "5xx": 38
+    }
+  },
+  "checks": {
+    "not_a_server_error": {"total": 4791, "failures": 38},
+    "ignored_auth": {"total": 4791, "failures": 2},
+    "status_code_conformance": {"total": 4791, "failures": 14},
+    "content_type_conformance": {"total": 4791, "failures": 0},
+    "response_headers_conformance": {"total": 4791, "failures": 5},
+    "response_schema_conformance": {"total": 4791, "failures": 21}
+  },
+  "duration_seconds": 486.2
+}

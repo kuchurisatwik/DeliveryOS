@@ -1,0 +1,122 @@
+{
+  "_comment": "Captured machine-readable Schemathesis report (fast-profile scan of a staging API), trimmed to the failing cases and saved so SchemathesisAdapter.parse can be exercised from a fixture with no subprocess and no network. It carries one failing case for each of the three finding kinds the adapter classifies: an undeclared 5xx (not_a_server_error), an unauthenticated success (ignored_auth), and a response that breaks two declared contract elements at once (status_code_conformance + response_schema_conformance). Field names (results/method/path/verbose_name/cases/request[method,uri,headers,body]/response[status_code,headers,body]/checks[name,status]) mirror the real report shape _iter_cases/_failed_checks/_request_info consume. generated_cases (4820) is deliberately larger than statistics.requests_made (4791) so evidence is never read from the case count.",
+  "version": "3.39.5",
+  "target": "https://staging.internal.example/",
+  "seed": 0,
+  "exit_code": 1,
+  "generated_cases": 4820,
+  "statistics": {
+    "requests_made": 4791,
+    "request_errors": 12,
+    "timeouts": 3,
+    "responses": {
+      "2xx": 4102,
+      "4xx": 651,
+      "5xx": 38
+    }
+  },
+  "results": [
+    {
+      "method": "GET",
+      "path": "/api/users/{id}",
+      "verbose_name": "GET /api/users/{id}",
+      "cases": [
+        {
+          "request": {
+            "method": "GET",
+            "uri": "https://staging.internal.example/api/users/42?include=profile",
+            "headers": {
+              "Authorization": "Bearer staging-token-abc123",
+              "Accept": "application/json",
+              "User-Agent": "schemathesis/3.39.5"
+            },
+            "body": null
+          },
+          "response": {
+            "status_code": 500,
+            "headers": {
+              "Content-Type": "text/html; charset=utf-8"
+            },
+            "body": "<html><head><title>500 Internal Server Error</title></head><body>Traceback (most recent call last): ValueError: invalid literal for int()</body></html>"
+          },
+          "checks": [
+            {"name": "not_a_server_error", "status": "failure"},
+            {"name": "status_code_conformance", "status": "success"},
+            {"name": "content_type_conformance", "status": "success"},
+            {"name": "response_headers_conformance", "status": "success"},
+            {"name": "response_schema_conformance", "status": "success"},
+            {"name": "ignored_auth", "status": "success"}
+          ]
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/orders/{order_id}",
+      "verbose_name": "GET /api/orders/{order_id}",
+      "cases": [
+        {
+          "request": {
+            "method": "GET",
+            "uri": "https://staging.internal.example/api/orders/1008",
+            "headers": {
+              "Accept": "application/json",
+              "User-Agent": "schemathesis/3.39.5"
+            },
+            "body": null
+          },
+          "response": {
+            "status_code": 200,
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": "{\"id\": 1008, \"total\": \"42.00\", \"status\": \"shipped\"}"
+          },
+          "checks": [
+            {"name": "not_a_server_error", "status": "success"},
+            {"name": "ignored_auth", "status": "failure"},
+            {"name": "status_code_conformance", "status": "success"},
+            {"name": "content_type_conformance", "status": "success"},
+            {"name": "response_headers_conformance", "status": "success"},
+            {"name": "response_schema_conformance", "status": "success"}
+          ]
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/orders",
+      "verbose_name": "POST /api/orders",
+      "cases": [
+        {
+          "request": {
+            "method": "POST",
+            "uri": "https://staging.internal.example/api/orders",
+            "headers": {
+              "Authorization": "Bearer staging-token-abc123",
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              "User-Agent": "schemathesis/3.39.5"
+            },
+            "body": "{\"sku\": \"WIDGET-1\", \"quantity\": -2147483648}"
+          },
+          "response": {
+            "status_code": 418,
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": "{\"teapot\": true}"
+          },
+          "checks": [
+            {"name": "not_a_server_error", "status": "success"},
+            {"name": "ignored_auth", "status": "success"},
+            {"name": "status_code_conformance", "status": "failure"},
+            {"name": "content_type_conformance", "status": "success"},
+            {"name": "response_headers_conformance", "status": "success"},
+            {"name": "response_schema_conformance", "status": "failure"}
+          ]
+        }
+      ]
+    }
+  ]
+}
